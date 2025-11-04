@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 import streamlit as st
 import os
 import json
@@ -185,5 +186,258 @@ if job_description:
 
 else:
     st.info("Please upload at least one file or enter job description text to proceed.")
+=======
+import logging
+from logging.handlers import RotatingFileHandler
+from flask import Flask, request, jsonify
+import pickle
+import faiss
+import numpy as np
+from openai import OpenAI
+from dotenv import load_dotenv
+import os
+from PyPDF2 import PdfReader
+import docx
+import io
+import sqlite3, hashlib, json, time
+
+# === Logging configuration ===
+if not os.path.exists("logs"):
+    os.makedirs("logs")
+
+handler = RotatingFileHandler("logs/backend.log", maxBytes=5*1024*1024, backupCount=5)
+formatter = logging.Formatter(
+    "%(asctime)s - %(levelname)s - %(name)s - %(message)s", "%Y-%m-%d %H:%M:%S"
+)
+handler.setFormatter(formatter)
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+logger.addHandler(handler)
+
+# === Initialize Flask app ===
+app = Flask(__name__)
+
+# Load environment variables and OpenAI client
+load_dotenv()
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+# === Load FAISS index and resume data ===
+try:
+    index = faiss.read_index("resume_index.faiss")
+    with open("resume_store.pkl", "rb") as f:
+        resume_store = pickle.load(f)
+    logger.info("FAISS index and resume data loaded successfully.")
+except Exception as e:
+    logger.error(f"Error loading FAISS or resume data: {e}")
+    raise e
+
+# === SQLite cache for reasoning & summaries ===
+CACHE_DB = "reasoning_cache.db"
+
+def get_db_connection():
+    conn = sqlite3.connect(CACHE_DB)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS cache (
+            key TEXT PRIMARY KEY,
+            value TEXT,
+            created_at REAL
+        )
+    """)
+    return conn
+
+def compute_hash(text):
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+def get_cached_value(key):
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT value FROM cache WHERE key = ?", (key,))
+        row = cur.fetchone()
+        conn.close()
+        if row:
+            logger.info(f"Cache hit for key: {key[:12]}...")
+        return json.loads(row[0]) if row else None
+    except Exception as e:
+        logger.error(f"Cache read error: {e}")
+        return None
+
+def set_cached_value(key, value):
+    try:
+        conn = get_db_connection()
+        conn.execute("INSERT OR REPLACE INTO cache (key, value, created_at) VALUES (?, ?, ?)",
+                     (key, json.dumps(value), time.time()))
+        conn.commit()
+        conn.close()
+        logger.info(f"Cache write success for key: {key[:12]}...")
+    except Exception as e:
+        logger.error(f"Cache write error: {e}")
+
+# === File extraction helper ===
+def extract_text_from_file_storage(file_storage):
+    filename = file_storage.filename.lower()
+    try:
+        if filename.endswith(".pdf"):
+            reader = PdfReader(io.BytesIO(file_storage.read()))
+            file_storage.seek(0)
+            text = "".join(page.extract_text() or "" for page in reader.pages)
+            return text
+        elif filename.endswith(".docx"):
+            tmp = io.BytesIO(file_storage.read())
+            file_storage.seek(0)
+            doc = docx.Document(tmp)
+            return "\n".join(p.text for p in doc.paragraphs)
+        elif filename.endswith(".txt"):
+            content = file_storage.read().decode("utf-8", errors="ignore")
+            file_storage.seek(0)
+            return content
+        else:
+            file_storage.seek(0)
+            return ""
+    except Exception as e:
+        logger.warning(f"File read error: {e}")
+        try:
+            file_storage.seek(0)
+        except:
+            pass
+        return ""
+
+# === Prompt Builders ===
+def build_explain_prompt(job_description, resume_name, resume_text, rank, total):
+    short_resume = (resume_text[:3000] + "...") if resume_text and len(resume_text) > 3000 else (resume_text or "")
+    prompt = (
+        f"You are an experienced technical recruiter and hiring manager. "
+        f"In 3–5 conversational sentences, explain why this candidate is a good fit "
+        f"for the job and why they ranked #{rank} out of {total}. "
+        f"Be concise, specific to the candidate's highlights, and compare briefly to others.\n\n"
+        f"JOB DESCRIPTION:\n{job_description}\n\n"
+        f"RESUME ({resume_name}) SUMMARY / EXCERPT:\n{short_resume}\n\n"
+        f"Return plain text (3–5 sentences)."
+    )
+    return prompt
+
+# === OpenAI call helper ===
+def get_reasoning_for_resume(prompt, cache_key):
+    cached = get_cached_value(cache_key)
+    if cached:
+        return cached
+    try:
+        resp = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=150,
+            temperature=0.7
+        )
+        reasoning = resp.choices[0].message.content.strip()
+        set_cached_value(cache_key, reasoning)
+        return reasoning
+    except Exception as e:
+        logger.error(f"Explanation generation error: {e}")
+        return "Explanation unavailable (error generating reasoning)."
+
+# === Flask routes ===
+@app.route("/")
+def home():
+    logger.info("Health check at root route.")
+    return "✅ Flask backend running successfully!"
+
+@app.route("/search", methods=["POST"])
+def search_resumes():
+    try:
+        job_description = None
+
+        # Handle upload or JSON
+        if "file" in request.files:
+            uploaded_file = request.files["file"]
+            job_description = extract_text_from_file_storage(uploaded_file)
+            logger.info(f"Received file upload: {uploaded_file.filename}")
+        else:
+            data = request.get_json(force=True, silent=True) or {}
+            job_description = data.get("job_description", "")
+            logger.info("Received JSON job description request.")
+
+        if not job_description or not job_description.strip():
+            logger.warning("Empty job description submitted.")
+            return jsonify({"error": "Job description missing"}), 400
+
+        job_hash = compute_hash(job_description)
+
+        # === Step 1: Create job embedding ===
+        job_vector = client.embeddings.create(
+            model="text-embedding-3-small",
+            input=job_description
+        ).data[0].embedding
+        job_vector = np.array(job_vector).astype("float32").reshape(1, -1)
+
+        # === Step 2: Search FAISS ===
+        k = 5
+        distances, indices = index.search(job_vector, k=k)
+        scores = 1 / (1 + distances)
+
+        results = []
+        total_found = min(k, indices.shape[1] if indices is not None else 0)
+
+        for i, idx in enumerate(indices[0][:k]):
+            if idx < 0 or idx >= len(resume_store):
+                name = f"Resume {idx}"
+                resume_text = ""
+            else:
+                entry = resume_store[idx]
+                name = entry.get("name") or entry.get("filename") or entry.get("title") or f"Resume {idx}"
+                resume_text = entry.get("text") or entry.get("content") or ""
+
+            score = float(scores[0][i]) if scores is not None else 0.0
+
+            reasoning_key = compute_hash(job_description + name + str(i))
+            prompt = build_explain_prompt(job_description, name, resume_text, i + 1, total_found)
+            reasoning = get_reasoning_for_resume(prompt, reasoning_key)
+
+            results.append({
+                "rank": i + 1,
+                "name": name,
+                "score": score,
+                "reasoning": reasoning
+            })
+
+        # === Step 4: Ranking summary (cached) ===
+        summary_key = compute_hash(job_description + "_summary")
+        ranking_summary = get_cached_value(summary_key)
+        if not ranking_summary:
+            try:
+                comp_prompt = (
+                    "You are an experienced hiring manager. Given the job description below and the ranked candidates, "
+                    "write a concise 1-paragraph summary (2–3 sentences) explaining why the top candidate is the best fit "
+                    "and how the next two compare.\n\n"
+                    f"JOB DESCRIPTION:\n{job_description}\n\n"
+                )
+                for r in results:
+                    comp_prompt += f"RANK {r['rank']}: {r['name']} — reason: {r['reasoning']}\n"
+                comp_resp = client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[{"role": "user", "content": comp_prompt}],
+                    max_tokens=120,
+                    temperature=0.6
+                )
+                ranking_summary = comp_resp.choices[0].message.content.strip()
+                set_cached_value(summary_key, ranking_summary)
+            except Exception as e:
+                logger.error(f"Ranking summary generation error: {e}")
+                ranking_summary = ""
+
+        logger.info(f"Search completed successfully for request {job_hash[:12]}...")
+        return jsonify({
+            "matches": results,
+            "ranking_summary": ranking_summary
+        })
+
+    except Exception as e:
+        logger.exception(f"Backend error in /search: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+if __name__ == "__main__":
+    app.run(host="127.0.0.1", port=5000, debug=True)
+>>>>>>> 10771d2d (Initial commit for Crean AI Matcher full app)
 
 

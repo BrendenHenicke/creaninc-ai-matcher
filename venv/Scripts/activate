@@ -35,7 +35,11 @@ deactivate () {
 # unset irrelevant variables
 deactivate nondestructive
 
+<<<<<<< HEAD
 VIRTUAL_ENV="C:\Users\brend\crean-ai-matcher\venv"
+=======
+VIRTUAL_ENV="C:\Users\brend\crean-ai-matcher\ai_resume_matcher\venv"
+>>>>>>> 10771d2d (Initial commit for Crean AI Matcher full app)
 export VIRTUAL_ENV
 
 _OLD_VIRTUAL_PATH="$PATH"

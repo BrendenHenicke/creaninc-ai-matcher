@@ -8,7 +8,11 @@ if defined _OLD_CODEPAGE (
     "%SystemRoot%\System32\chcp.com" 65001 > nul
 )
 
+<<<<<<< HEAD
 set VIRTUAL_ENV=C:\Users\brend\crean-ai-matcher\venv
+=======
+set VIRTUAL_ENV=C:\Users\brend\crean-ai-matcher\ai_resume_matcher\venv
+>>>>>>> 10771d2d (Initial commit for Crean AI Matcher full app)
 
 if not defined PROMPT set PROMPT=$P$G
 
