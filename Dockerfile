@@ -20,4 +20,5 @@ ENV STREAMLIT_SERVER_ENABLECORS=false
 ENV STREAMLIT_SERVER_ENABLEXSRSFPROTECTION=false
 
 # Start both Flask and Streamlit
-CMD ["bash", "-c", "python app.py & streamlit run streamlit_app.py --server.port=8501 --server.address=0.0.0.0"]
+CMD ["bash", "-c", "python app.py & streamlit run streamlit_app.py --server.port=$PORT --server.address=0.0.0.0"]
+
