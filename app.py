@@ -11,12 +11,14 @@ from PyPDF2 import PdfReader
 import docx
 import io
 import sqlite3, hashlib, json, time
+import sys
+import traceback
 
 # === Logging configuration ===
 if not os.path.exists("logs"):
     os.makedirs("logs")
 
-handler = RotatingFileHandler("logs/backend.log", maxBytes=5*1024*1024, backupCount=5)
+handler = RotatingFileHandler("logs/backend.log", maxBytes=5 * 1024 * 1024, backupCount=5)
 formatter = logging.Formatter(
     "%(asctime)s - %(levelname)s - %(name)s - %(message)s", "%Y-%m-%d %H:%M:%S"
 )
@@ -29,16 +31,29 @@ logger.addHandler(handler)
 # === Initialize Flask app ===
 app = Flask(__name__)
 
-# Load environment variables and configure OpenAI client
+# === Load environment variables ===
 load_dotenv()
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
+# === Verify key presence ===
+if not openai.api_key:
+    logger.error("❌ Missing OPENAI_API_KEY in environment variables.")
+    raise ValueError("OPENAI_API_KEY is missing. Please set it in Render Environment Variables.")
+
 # === Load FAISS index and resume data ===
+index = None
+resume_store = []
 try:
-    index = faiss.read_index("resume_index.faiss")
-    with open("resume_store.pkl", "rb") as f:
-        resume_store = pickle.load(f)
-    logger.info("FAISS index and resume data loaded successfully.")
+    if os.path.exists("resume_index.faiss") and os.path.exists("resume_store.pkl"):
+        index = faiss.read_index("resume_index.faiss")
+        with open("resume_store.pkl", "rb") as f:
+            resume_store = pickle.load(f)
+        logger.info("✅ FAISS index and resume data loaded successfully.")
+    else:
+        logger.warning("⚠️ No FAISS index or resume_store.pkl found — using empty store.")
+        d = 1536  # embedding dimension
+        index = faiss.IndexFlatL2(d)
+        resume_store = []
 except Exception as e:
     logger.error(f"Error loading FAISS or resume data: {e}")
     raise e
@@ -140,7 +155,7 @@ def get_reasoning_for_resume(prompt, cache_key):
             max_tokens=150,
             temperature=0.7
         )
-        reasoning = resp.choices[0].message.content.strip()
+        reasoning = resp.choices[0].message["content"].strip()
         set_cached_value(cache_key, reasoning)
         return reasoning
     except Exception as e:
@@ -178,31 +193,28 @@ def search_resumes():
             model="text-embedding-3-small",
             input=job_description
         )
-        job_vector = np.array(embedding.data[0].embedding).astype("float32").reshape(1, -1)
+        job_vector = np.array(embedding["data"][0]["embedding"]).astype("float32").reshape(1, -1)
 
         # === Step 2: Search FAISS ===
-        k = 5
+        if index.ntotal == 0:
+            logger.warning("⚠️ FAISS index is empty — no resumes to match.")
+            return jsonify({"matches": [], "ranking_summary": "Resume database is empty."}), 200
+
+        k = min(5, index.ntotal)
         distances, indices = index.search(job_vector, k=k)
         scores = 1 / (1 + distances)
 
         results = []
-        total_found = min(k, indices.shape[1] if indices is not None else 0)
-
         for i, idx in enumerate(indices[0][:k]):
             if idx < 0 or idx >= len(resume_store):
-                name = f"Resume {idx}"
-                resume_text = ""
-            else:
-                entry = resume_store[idx]
-                name = entry.get("name") or entry.get("filename") or entry.get("title") or f"Resume {idx}"
-                resume_text = entry.get("text") or entry.get("content") or ""
-
+                continue
+            entry = resume_store[idx]
+            name = entry.get("name") or entry.get("filename") or f"Resume {idx}"
+            resume_text = entry.get("text") or entry.get("content") or ""
             score = float(scores[0][i]) if scores is not None else 0.0
-
             reasoning_key = compute_hash(job_description + name + str(i))
-            prompt = build_explain_prompt(job_description, name, resume_text, i + 1, total_found)
+            prompt = build_explain_prompt(job_description, name, resume_text, i + 1, k)
             reasoning = get_reasoning_for_resume(prompt, reasoning_key)
-
             results.append({
                 "rank": i + 1,
                 "name": name,
@@ -210,7 +222,7 @@ def search_resumes():
                 "reasoning": reasoning
             })
 
-        # === Step 4: Ranking summary (cached) ===
+        # === Step 3: Ranking summary ===
         summary_key = compute_hash(job_description + "_summary")
         ranking_summary = get_cached_value(summary_key)
         if not ranking_summary:
@@ -229,13 +241,13 @@ def search_resumes():
                     max_tokens=120,
                     temperature=0.6
                 )
-                ranking_summary = comp_resp.choices[0].message.content.strip()
+                ranking_summary = comp_resp.choices[0].message["content"].strip()
                 set_cached_value(summary_key, ranking_summary)
             except Exception as e:
                 logger.error(f"Ranking summary generation error: {e}")
                 ranking_summary = ""
 
-        logger.info(f"Search completed successfully for request {job_hash[:12]}...")
+        logger.info(f"✅ Search completed successfully for request {job_hash[:12]}...")
         return jsonify({
             "matches": results,
             "ranking_summary": ranking_summary
@@ -243,8 +255,13 @@ def search_resumes():
 
     except Exception as e:
         logger.exception(f"Backend error in /search: {e}")
+        print("\n\n===== ERROR TRACEBACK =====", file=sys.stderr)
+        traceback.print_exc()
+        print("===== END TRACEBACK =====\n\n", file=sys.stderr)
         return jsonify({"error": str(e)}), 500
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
+
