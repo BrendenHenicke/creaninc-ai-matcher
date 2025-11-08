@@ -4,7 +4,7 @@ from flask import Flask, request, jsonify
 import pickle
 import faiss
 import numpy as np
-from openai import OpenAI
+import openai
 from dotenv import load_dotenv
 import os
 from PyPDF2 import PdfReader
@@ -29,9 +29,9 @@ logger.addHandler(handler)
 # === Initialize Flask app ===
 app = Flask(__name__)
 
-# Load environment variables and OpenAI client
+# Load environment variables and configure OpenAI client
 load_dotenv()
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
 # === Load FAISS index and resume data ===
 try:
@@ -134,7 +134,7 @@ def get_reasoning_for_resume(prompt, cache_key):
     if cached:
         return cached
     try:
-        resp = client.chat.completions.create(
+        resp = openai.ChatCompletion.create(
             model="gpt-4o-mini",
             messages=[{"role": "user", "content": prompt}],
             max_tokens=150,
@@ -158,7 +158,6 @@ def search_resumes():
     try:
         job_description = None
 
-        # Handle upload or JSON
         if "file" in request.files:
             uploaded_file = request.files["file"]
             job_description = extract_text_from_file_storage(uploaded_file)
@@ -175,11 +174,11 @@ def search_resumes():
         job_hash = compute_hash(job_description)
 
         # === Step 1: Create job embedding ===
-        job_vector = client.embeddings.create(
+        embedding = openai.Embedding.create(
             model="text-embedding-3-small",
             input=job_description
-        ).data[0].embedding
-        job_vector = np.array(job_vector).astype("float32").reshape(1, -1)
+        )
+        job_vector = np.array(embedding.data[0].embedding).astype("float32").reshape(1, -1)
 
         # === Step 2: Search FAISS ===
         k = 5
@@ -224,7 +223,7 @@ def search_resumes():
                 )
                 for r in results:
                     comp_prompt += f"RANK {r['rank']}: {r['name']} — reason: {r['reasoning']}\n"
-                comp_resp = client.chat.completions.create(
+                comp_resp = openai.ChatCompletion.create(
                     model="gpt-4o-mini",
                     messages=[{"role": "user", "content": comp_prompt}],
                     max_tokens=120,
@@ -249,4 +248,3 @@ def search_resumes():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
-
