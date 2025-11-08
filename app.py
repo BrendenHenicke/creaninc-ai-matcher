@@ -4,7 +4,7 @@ from flask import Flask, request, jsonify
 import pickle
 import faiss
 import numpy as np
-import openai
+from openai import OpenAI
 from dotenv import load_dotenv
 import os
 from PyPDF2 import PdfReader
@@ -33,12 +33,12 @@ app = Flask(__name__)
 
 # === Load environment variables ===
 load_dotenv()
-openai.api_key = os.getenv("OPENAI_API_KEY")
-
-# === Verify key presence ===
-if not openai.api_key:
+api_key = os.getenv("OPENAI_API_KEY")
+if not api_key:
     logger.error("❌ Missing OPENAI_API_KEY in environment variables.")
     raise ValueError("OPENAI_API_KEY is missing. Please set it in Render Environment Variables.")
+
+client = OpenAI(api_key=api_key)
 
 # === Load FAISS index and resume data ===
 index = None
@@ -149,13 +149,13 @@ def get_reasoning_for_resume(prompt, cache_key):
     if cached:
         return cached
     try:
-        resp = openai.ChatCompletion.create(
+        resp = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[{"role": "user", "content": prompt}],
             max_tokens=150,
             temperature=0.7
         )
-        reasoning = resp.choices[0].message["content"].strip()
+        reasoning = resp.choices[0].message.content.strip()
         set_cached_value(cache_key, reasoning)
         return reasoning
     except Exception as e:
@@ -189,11 +189,11 @@ def search_resumes():
         job_hash = compute_hash(job_description)
 
         # === Step 1: Create job embedding ===
-        embedding = openai.Embedding.create(
+        response = client.embeddings.create(
             model="text-embedding-3-small",
             input=job_description
         )
-        job_vector = np.array(embedding["data"][0]["embedding"]).astype("float32").reshape(1, -1)
+        job_vector = np.array(response.data[0].embedding).astype("float32").reshape(1, -1)
 
         # === Step 2: Search FAISS ===
         if index.ntotal == 0:
@@ -235,13 +235,13 @@ def search_resumes():
                 )
                 for r in results:
                     comp_prompt += f"RANK {r['rank']}: {r['name']} — reason: {r['reasoning']}\n"
-                comp_resp = openai.ChatCompletion.create(
+                comp_resp = client.chat.completions.create(
                     model="gpt-4o-mini",
                     messages=[{"role": "user", "content": comp_prompt}],
                     max_tokens=120,
                     temperature=0.6
                 )
-                ranking_summary = comp_resp.choices[0].message["content"].strip()
+                ranking_summary = comp_resp.choices[0].message.content.strip()
                 set_cached_value(summary_key, ranking_summary)
             except Exception as e:
                 logger.error(f"Ranking summary generation error: {e}")
@@ -264,4 +264,3 @@ def search_resumes():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
-
