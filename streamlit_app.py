@@ -8,8 +8,10 @@ import json
 import time
 import os
 
-# Backend URL
-BACKEND_URL = "http://127.0.0.1:5000"
+# ========================
+# ✅ Backend URL (LIVE)
+# ========================
+BACKEND_URL = "https://creaninc-ai-backend.onrender.com"
 LOG_FILE = "frontend_logs.json"
 
 # --- Logging helper ---
@@ -115,9 +117,9 @@ if st.button("Find Matching Engineers"):
                     else:
                         st.info("No matching resumes found.")
                 else:
-                    st.error("Error from backend. Please check the Flask server.")
+                    st.error("❌ Error from backend. Please check the Flask server logs on Render.")
             except requests.exceptions.ConnectionError:
-                st.error("⚠️ Could not connect to backend. Make sure Flask is running on port 5000.")
+                st.error("⚠️ Could not connect to backend. Please verify your backend is live and reachable.")
 
 
 st.markdown("---")
