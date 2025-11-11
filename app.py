@@ -38,10 +38,17 @@ CORS(app)
 
 # ========= OpenAI =========
 load_dotenv()
+
+# Nuke any proxy variables that could make the SDK pass a proxies kwarg internally
+for _k in ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "ALL_PROXY", "all_proxy", "NO_PROXY", "no_proxy"]:
+    os.environ.pop(_k, None)
+
 api_key = os.getenv("OPENAI_API_KEY")
 if not api_key:
     logger.error("Missing OPENAI_API_KEY in environment variables.")
     raise ValueError("OPENAI_API_KEY is missing. Set it in environment variables.")
+
+# Vanilla client (no custom http_client, no proxies)
 client = OpenAI(api_key=api_key)
 
 # ========= FAISS + Store =========
@@ -291,11 +298,7 @@ def upload_resume():
             name = f.filename or f"Resume_{int(time.time())}"
             if not text.strip():
                 continue
-            # embed this one
             vec = _embed_texts([text])
-            if index.ntotal == 0 and not isinstance(index, faiss.IndexFlatL2):
-                # safety—shouldn’t happen
-                _rebuild_full_index()
             index.add(vec)
             resume_store.append({"name": name, "text": text})
             added += 1
