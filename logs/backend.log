@@ -14,3 +14,68 @@
 2025-11-04 08:55:41 - INFO - __main__ - Search completed successfully for request 60de623a0398...
 2025-11-04 08:59:51 - INFO - __main__ - FAISS index and resume data loaded successfully.
 2025-11-04 09:00:00 - INFO - __main__ - FAISS index and resume data loaded successfully.
+2025-11-10 16:23:06 - INFO - __main__ - Health check at root route.
+2025-11-10 16:36:42 - INFO - __main__ - Health check at root route.
+2025-11-10 16:53:34 - INFO - __main__ - Received JSON job description request.
+2025-11-10 16:53:35 - ERROR - __main__ - Backend error in /search: Error code: 401 - {'error': {'message': 'Incorrect API key provided: sk-svcac***********************************************************************************************************************************************************JV4A. You can find your API key at https://platform.openai.com/account/api-keys.', 'type': 'invalid_request_error', 'param': None, 'code': 'invalid_api_key'}}
+Traceback (most recent call last):
+  File "C:\Users\brend\crean-ai-matcher\ai_resume_matcher\app.py", line 200, in search_resumes
+    embedding_response = client.embeddings.create(
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\brend\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.11_qbz5n2kfra8p0\LocalCache\local-packages\Python311\site-packages\openai\resources\embeddings.py", line 114, in create
+    return self._post(
+           ^^^^^^^^^^^
+  File "C:\Users\brend\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.11_qbz5n2kfra8p0\LocalCache\local-packages\Python311\site-packages\openai\_base_client.py", line 1260, in post
+    return cast(ResponseT, self.request(cast_to, opts, stream=stream, stream_cls=stream_cls))
+                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\brend\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.11_qbz5n2kfra8p0\LocalCache\local-packages\Python311\site-packages\openai\_base_client.py", line 937, in request
+    return self._request(
+           ^^^^^^^^^^^^^^
+  File "C:\Users\brend\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.11_qbz5n2kfra8p0\LocalCache\local-packages\Python311\site-packages\openai\_base_client.py", line 1041, in _request
+    raise self._make_status_error_from_response(err.response) from None
+openai.AuthenticationError: Error code: 401 - {'error': {'message': 'Incorrect API key provided: sk-svcac***********************************************************************************************************************************************************JV4A. You can find your API key at https://platform.openai.com/account/api-keys.', 'type': 'invalid_request_error', 'param': None, 'code': 'invalid_api_key'}}
+2025-11-10 16:57:49 - INFO - __main__ - Received JSON job description request.
+2025-11-10 16:57:49 - ERROR - __main__ - Backend error in /search: Error code: 401 - {'error': {'message': 'Incorrect API key provided: sk-svcac***********************************************************************************************************************************************************JV4A. You can find your API key at https://platform.openai.com/account/api-keys.', 'type': 'invalid_request_error', 'param': None, 'code': 'invalid_api_key'}}
+Traceback (most recent call last):
+  File "C:\Users\brend\crean-ai-matcher\ai_resume_matcher\app.py", line 200, in search_resumes
+    embedding_response = client.embeddings.create(
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\brend\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.11_qbz5n2kfra8p0\LocalCache\local-packages\Python311\site-packages\openai\resources\embeddings.py", line 114, in create
+    return self._post(
+           ^^^^^^^^^^^
+  File "C:\Users\brend\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.11_qbz5n2kfra8p0\LocalCache\local-packages\Python311\site-packages\openai\_base_client.py", line 1260, in post
+    return cast(ResponseT, self.request(cast_to, opts, stream=stream, stream_cls=stream_cls))
+                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\brend\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.11_qbz5n2kfra8p0\LocalCache\local-packages\Python311\site-packages\openai\_base_client.py", line 937, in request
+    return self._request(
+           ^^^^^^^^^^^^^^
+  File "C:\Users\brend\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.11_qbz5n2kfra8p0\LocalCache\local-packages\Python311\site-packages\openai\_base_client.py", line 1041, in _request
+    raise self._make_status_error_from_response(err.response) from None
+openai.AuthenticationError: Error code: 401 - {'error': {'message': 'Incorrect API key provided: sk-svcac***********************************************************************************************************************************************************JV4A. You can find your API key at https://platform.openai.com/account/api-keys.', 'type': 'invalid_request_error', 'param': None, 'code': 'invalid_api_key'}}
+2025-11-10 17:19:32 - INFO - __main__ - FAISS index and resume data loaded successfully.
+2025-11-10 17:19:33 - INFO - __main__ - FAISS index and resume data loaded successfully.
+2025-11-10 17:22:41 - INFO - __main__ - FAISS index and resume data loaded successfully.
+2025-11-10 17:26:10,525 - INFO - __main__ - FAISS index and resume data loaded successfully.
+2025-11-10 17:26:18,052 - INFO - __main__ - FAISS index and resume data loaded successfully.
+2025-11-10 17:26:19,347 - INFO - __main__ - FAISS index and resume data loaded successfully.
+2025-11-10 17:29:40,861 - INFO - __main__ - FAISS index and resume data loaded successfully.
+2025-11-10 17:29:49,323 - INFO - __main__ - FAISS index and resume data loaded successfully.
+2025-11-10 17:29:50,613 - INFO - __main__ - FAISS index and resume data loaded successfully.
+2025-11-10 17:30:25,656 - INFO - __main__ - Received JSON job description request.
+2025-11-10 17:30:26,100 - ERROR - __main__ - Backend error in /search: Error code: 401 - {'error': {'message': 'Incorrect API key provided: sk-svcac***********************************************************************************************************************************************************JV4A. You can find your API key at https://platform.openai.com/account/api-keys.', 'type': 'invalid_request_error', 'param': None, 'code': 'invalid_api_key'}}
+Traceback (most recent call last):
+  File "C:\Users\brend\crean-ai-matcher\ai_resume_matcher\app.py", line 197, in search_resumes
+    embedding_response = client.embeddings.create(
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\brend\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.11_qbz5n2kfra8p0\LocalCache\local-packages\Python311\site-packages\openai\resources\embeddings.py", line 114, in create
+    return self._post(
+           ^^^^^^^^^^^
+  File "C:\Users\brend\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.11_qbz5n2kfra8p0\LocalCache\local-packages\Python311\site-packages\openai\_base_client.py", line 1260, in post
+    return cast(ResponseT, self.request(cast_to, opts, stream=stream, stream_cls=stream_cls))
+                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\brend\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.11_qbz5n2kfra8p0\LocalCache\local-packages\Python311\site-packages\openai\_base_client.py", line 937, in request
+    return self._request(
+           ^^^^^^^^^^^^^^
+  File "C:\Users\brend\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.11_qbz5n2kfra8p0\LocalCache\local-packages\Python311\site-packages\openai\_base_client.py", line 1041, in _request
+    raise self._make_status_error_from_response(err.response) from None
+openai.AuthenticationError: Error code: 401 - {'error': {'message': 'Incorrect API key provided: sk-svcac***********************************************************************************************************************************************************JV4A. You can find your API key at https://platform.openai.com/account/api-keys.', 'type': 'invalid_request_error', 'param': None, 'code': 'invalid_api_key'}}

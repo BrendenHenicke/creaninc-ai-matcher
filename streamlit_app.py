@@ -8,10 +8,14 @@ import json
 import time
 import os
 
+os.environ["STREAMLIT_SERVER_ENABLECORS"] = "false"
+os.environ["STREAMLIT_SERVER_ENABLEXSRSFPROTECTION"] = "false"
+
 # ========================
 # ✅ Backend URL (LIVE)
 # ========================
-BACKEND_URL = "https://creaninc-ai-backend.onrender.com"
+BACKEND_URL = "http://127.0.0.1:5000"
+
 LOG_FILE = "frontend_logs.json"
 
 # --- Logging helper ---
@@ -24,7 +28,6 @@ def log_search_event(job_description, num_results, duration):
         "duration_sec": round(duration, 2)
     }
 
-    # Load existing logs
     if os.path.exists(LOG_FILE):
         try:
             with open(LOG_FILE, "r", encoding="utf-8") as f:
@@ -40,12 +43,10 @@ def log_search_event(job_description, num_results, duration):
     with open(LOG_FILE, "w", encoding="utf-8") as f:
         json.dump(logs, f, indent=2)
 
-
 # --- Streamlit config ---
 st.set_page_config(page_title="Crean AI Resume Matcher", page_icon="🤖", layout="wide")
 st.title("🤖 Crean Inc. AI Resume Matcher")
 st.markdown("Upload or type a job description to let AI find the best-matched engineers from your resume database.")
-
 
 # --- Helper: Extract text from uploaded file ---
 def extract_text(uploaded_file):
@@ -68,7 +69,6 @@ def extract_text(uploaded_file):
         st.error(f"❌ Could not read file: {uploaded_file.name} ({e})")
         return ""
 
-
 # --- Input area ---
 job_description = st.text_area("✍️ Paste the job description here:", height=200)
 uploaded_file = st.file_uploader("📄 Or upload a job description file", type=["pdf", "docx", "txt", "json"])
@@ -79,7 +79,6 @@ if uploaded_file:
         st.success(f"✅ Extracted text from {uploaded_file.name}")
         job_description += "\n" + extracted_text
 
-
 # --- Submit button ---
 if st.button("Find Matching Engineers"):
     if not job_description.strip():
@@ -88,6 +87,7 @@ if st.button("Find Matching Engineers"):
         with st.spinner("Analyzing and matching resumes..."):
             start_time = time.time()
             try:
+                # ✅ Fixed: add /search here instead of in BACKEND_URL
                 response = requests.post(f"{BACKEND_URL}/search", json={"job_description": job_description})
                 duration = time.time() - start_time
 
@@ -98,7 +98,6 @@ if st.button("Find Matching Engineers"):
                         matches = results["matches"]
                         num_results = len(matches)
 
-                        # ✅ Log search analytics
                         log_search_event(job_description, num_results, duration)
 
                         st.success(f"✅ Found {num_results} matching engineers:")
@@ -117,10 +116,9 @@ if st.button("Find Matching Engineers"):
                     else:
                         st.info("No matching resumes found.")
                 else:
-                    st.error("❌ Error from backend. Please check the Flask server logs on Render.")
+                    st.error("❌ Error from backend. Check Flask logs for details.")
             except requests.exceptions.ConnectionError:
-                st.error("⚠️ Could not connect to backend. Please verify your backend is live and reachable.")
-
+                st.error("⚠️ Could not connect to backend. Make sure Flask is running on port 5000.")
 
 st.markdown("---")
 st.caption("Crean Inc. AI Resume Matcher © 2025")
