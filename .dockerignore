@@ -1,0 +1,15 @@
+venv/
+__pycache__/
+logs/
+*.faiss
+*.pkl
+*.db
+*.json
+*.pdf
+*.docx
+*.png
+*.jpg
+*.jpeg
+.DS_Store
+.git/
+.gitignore
