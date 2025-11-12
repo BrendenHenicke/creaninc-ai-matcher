@@ -18,14 +18,19 @@ import traceback
 # ========= Config =========
 EMBED_MODEL = "text-embedding-3-small"
 EMBED_DIM = 1536
+
 # ======== Persistent Storage Paths ========
 # Use /data if available (Render persistent disk mount)
 PERSIST_PATH = "/data" if os.path.exists("/data") else "."
-
 INDEX_PATH = os.path.join(PERSIST_PATH, "resume_index.faiss")
 STORE_PATH = os.path.join(PERSIST_PATH, "resume_store.pkl")
 CACHE_DB = os.path.join(PERSIST_PATH, "reasoning_cache.db")
 
+print("------------------------------------------------------")
+print(f"📦 Persistent path configured: {PERSIST_PATH}")
+print(f"📄 Index path: {INDEX_PATH}")
+print(f"📄 Store path: {STORE_PATH}")
+print("------------------------------------------------------")
 
 # ========= Logging =========
 if not os.path.exists("logs"):
@@ -44,7 +49,7 @@ CORS(app)
 # ========= OpenAI =========
 load_dotenv()
 
-# Nuke any proxy variables that could make the SDK pass a proxies kwarg internally
+# Nuke proxy env vars to avoid "proxies" kwarg bug
 for _k in ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "ALL_PROXY", "all_proxy", "NO_PROXY", "no_proxy"]:
     os.environ.pop(_k, None)
 
@@ -53,7 +58,6 @@ if not api_key:
     logger.error("Missing OPENAI_API_KEY in environment variables.")
     raise ValueError("OPENAI_API_KEY is missing. Set it in environment variables.")
 
-# Vanilla client (no custom http_client, no proxies)
 client = OpenAI(api_key=api_key)
 
 # ========= FAISS + Store =========
@@ -67,19 +71,27 @@ def _save_index_and_store():
     faiss.write_index(index, INDEX_PATH)
     with open(STORE_PATH, "wb") as f:
         pickle.dump(resume_store, f)
-    logger.info("Saved FAISS index and resume store to disk.")
+    logger.info(f"Saved FAISS index and resume store (count={len(resume_store)})")
 
 def _load_index_and_store():
     global index, resume_store
     if os.path.exists(INDEX_PATH) and os.path.exists(STORE_PATH):
-        index = faiss.read_index(INDEX_PATH)
-        with open(STORE_PATH, "rb") as f:
-            resume_store = pickle.load(f)
-        logger.info("FAISS index and resume data loaded successfully.")
+        try:
+            index = faiss.read_index(INDEX_PATH)
+            with open(STORE_PATH, "rb") as f:
+                resume_store = pickle.load(f)
+            logger.info(f"✅ Loaded FAISS index with {len(resume_store)} resumes from disk.")
+            print(f"✅ Loaded FAISS index with {len(resume_store)} resumes from {PERSIST_PATH}")
+        except Exception as e:
+            logger.warning(f"⚠️ Corrupted FAISS store detected, rebuilding from scratch: {e}")
+            index = _new_index()
+            resume_store = []
+            _save_index_and_store()
     else:
+        logger.warning("⚙️ No FAISS index found — starting empty.")
+        print("⚙️ No FAISS index found — creating a new one.")
         index = _new_index()
         resume_store = []
-        logger.warning("No FAISS index or store found—starting empty.")
 
 def _embed_texts(texts):
     resp = client.embeddings.create(model=EMBED_MODEL, input=texts)
@@ -101,7 +113,7 @@ def _rebuild_full_index():
 
 _load_index_and_store()
 
-# ========= SQLite cache (reasoning) =========
+# ========= SQLite Cache =========
 def get_db_connection():
     conn = sqlite3.connect(CACHE_DB)
     conn.execute("""
@@ -141,7 +153,7 @@ def set_cached_value(key, value):
     except Exception as e:
         logger.error(f"Cache write error: {e}")
 
-# ========= File extraction =========
+# ========= File Extraction =========
 def extract_text_from_file_storage(file_storage):
     filename = (file_storage.filename or "").lower()
     try:
@@ -169,7 +181,7 @@ def extract_text_from_file_storage(file_storage):
             pass
         return ""
 
-# ========= Prompt builder =========
+# ========= Prompt Builder =========
 def build_explain_prompt(job_description, resume_name, resume_text, rank, total):
     short_resume = (resume_text[:3000] + "...") if resume_text and len(resume_text) > 3000 else (resume_text or "")
     return (
@@ -207,22 +219,16 @@ def home():
 
 @app.route("/health")
 def health():
-    return jsonify({"ok": True})
+    return jsonify({"ok": True, "resume_count": len(resume_store)})
 
-# ---- MATCHING ----
 @app.route("/search", methods=["POST"])
 def search():
     try:
-        if "file" in request.files:
-            job_description = extract_text_from_file_storage(request.files["file"])
-        else:
-            data = request.get_json(force=True, silent=True) or {}
-            job_description = data.get("job_description", "")
-
+        data = request.get_json(force=True, silent=True) or {}
+        job_description = data.get("job_description", "")
         if not job_description.strip():
             return jsonify({"error": "Job description missing"}), 400
 
-        # embedding
         emb = client.embeddings.create(model=EMBED_MODEL, input=job_description)
         job_vec = np.array(emb.data[0].embedding, dtype="float32").reshape(1, -1)
 
@@ -238,9 +244,9 @@ def search():
             if idx < 0 or idx >= len(resume_store):
                 continue
             entry = resume_store[idx]
-            name = entry.get("name") or entry.get("filename") or f"Resume {idx}"
+            name = entry.get("name") or f"Resume {idx}"
             resume_text = entry.get("text") or ""
-            score = float(scores[0][i]) if scores is not None else 0.0
+            score = float(scores[0][i])
             reasoning_key = compute_hash(job_description + name + str(i))
             prompt = build_explain_prompt(job_description, name, resume_text, i + 1, k)
             reasoning = get_reasoning_for_resume(prompt, reasoning_key)
@@ -251,47 +257,13 @@ def search():
                 "reasoning": reasoning
             })
 
-        # summary
-        summary_key = compute_hash(job_description + "_summary")
-        ranking_summary = get_cached_value(summary_key)
-        if not ranking_summary:
-            comp_prompt = (
-                "You are an experienced hiring manager. Given the job description below and the ranked candidates, "
-                "write a concise 1-paragraph summary (2–3 sentences) explaining why the top candidate is the best fit "
-                "and how the next two compare.\n\n"
-                f"JOB DESCRIPTION:\n{job_description}\n\n"
-            )
-            for r in results:
-                comp_prompt += f"RANK {r['rank']}: {r['name']} — reason: {r['reasoning']}\n"
-            try:
-                comp_resp = client.chat.completions.create(
-                    model="gpt-4o-mini",
-                    messages=[{"role": "user", "content": comp_prompt}],
-                    max_tokens=120,
-                    temperature=0.6
-                )
-                ranking_summary = comp_resp.choices[0].message.content.strip()
-                set_cached_value(summary_key, ranking_summary)
-            except Exception as e:
-                logger.error(f"Ranking summary generation error: {e}")
-                ranking_summary = ""
-
-        return jsonify({"matches": results, "ranking_summary": ranking_summary})
-
+        return jsonify({"matches": results})
     except Exception as e:
         logger.exception(f"/search error: {e}")
-        print("\n\n===== ERROR TRACEBACK =====", file=sys.stderr)
-        traceback.print_exc()
-        print("===== END TRACEBACK =====\n\n", file=sys.stderr)
         return jsonify({"error": str(e)}), 500
 
-# ---- ADMIN-LESS RESUME MGMT (open to all) ----
 @app.route("/upload_resume", methods=["POST"])
 def upload_resume():
-    """
-    Accepts form-data with one or multiple files: key 'files'
-    Updates resume_store and FAISS incrementally
-    """
     try:
         if "files" not in request.files:
             return jsonify({"error": "No files part"}), 400
@@ -309,43 +281,24 @@ def upload_resume():
             added += 1
 
         _save_index_and_store()
+        logger.info(f"Uploaded {added} resumes (total={len(resume_store)})")
         return jsonify({"ok": True, "added": added, "total": len(resume_store)})
-
     except Exception as e:
         logger.exception(f"/upload_resume error: {e}")
         return jsonify({"error": str(e)}), 500
 
 @app.route("/list_resumes", methods=["GET"])
 def list_resumes():
-    out = []
-    for i, r in enumerate(resume_store):
-        out.append({"idx": i, "name": r.get("name", f"Resume {i}"), "chars": len(r.get("text", ""))})
+    out = [{"idx": i, "name": r.get("name", f"Resume {i}"), "chars": len(r.get("text", ""))} for i, r in enumerate(resume_store)]
     return jsonify({"resumes": out, "count": len(out)})
-
-@app.route("/preview_resume", methods=["GET"])
-def preview_resume():
-    try:
-        idx = int(request.args.get("idx", "-1"))
-        if idx < 0 or idx >= len(resume_store):
-            return jsonify({"error": "Invalid index"}), 400
-        text = resume_store[idx].get("text", "")
-        snippet = text[:2000] + ("..." if len(text) > 2000 else "")
-        return jsonify({"idx": idx, "name": resume_store[idx].get("name"), "snippet": snippet})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
 
 @app.route("/delete_resume", methods=["POST"])
 def delete_resume():
-    """
-    Body: {"idx": int}
-    Rebuilds index after delete (FAISS IndexFlatL2 doesn't support remove IDs)
-    """
     try:
         data = request.get_json(force=True, silent=True) or {}
-        idx = data.get("idx", None)
+        idx = data.get("idx")
         if idx is None or not (0 <= idx < len(resume_store)):
             return jsonify({"error": "Invalid idx"}), 400
-
         removed = resume_store.pop(idx)
         _rebuild_full_index()
         return jsonify({"ok": True, "removed": removed.get("name"), "remaining": len(resume_store)})
@@ -353,16 +306,8 @@ def delete_resume():
         logger.exception(f"/delete_resume error: {e}")
         return jsonify({"error": str(e)}), 500
 
-@app.route("/rebuild_index", methods=["POST"])
-def rebuild_index():
-    try:
-        _rebuild_full_index()
-        return jsonify({"ok": True, "count": len(resume_store)})
-    except Exception as e:
-        logger.exception(f"/rebuild_index error: {e}")
-        return jsonify({"error": str(e)}), 500
-
 # ========= Main =========
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
+    print(f"🚀 Backend running on port {port}")
     app.run(host="0.0.0.0", port=port)
