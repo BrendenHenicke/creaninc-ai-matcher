@@ -18,9 +18,14 @@ import traceback
 # ========= Config =========
 EMBED_MODEL = "text-embedding-3-small"
 EMBED_DIM = 1536
-INDEX_PATH = "resume_index.faiss"
-STORE_PATH = "resume_store.pkl"
-CACHE_DB = "reasoning_cache.db"
+# ======== Persistent Storage Paths ========
+# Use /data if available (Render persistent disk mount)
+PERSIST_PATH = "/data" if os.path.exists("/data") else "."
+
+INDEX_PATH = os.path.join(PERSIST_PATH, "resume_index.faiss")
+STORE_PATH = os.path.join(PERSIST_PATH, "resume_store.pkl")
+CACHE_DB = os.path.join(PERSIST_PATH, "reasoning_cache.db")
+
 
 # ========= Logging =========
 if not os.path.exists("logs"):
