@@ -30,33 +30,45 @@ def inject_space_theme_css():
     st.markdown(
         """
         <style>
-        
-        /* -----------------------------------------
-           GLOBAL FONT + CREAN CORPORATE COLORS
-        ----------------------------------------- */
+
+        /* ----------------------------------------------------
+           GLOBAL FONT + CREAN BRAND COLORS
+        ---------------------------------------------------- */
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap');
 
         html, body, [class*="css"] {
             font-family: 'Inter', sans-serif !important;
+            color: #F2F7FF !important;
         }
 
         :root {
             --crean-blue: #00A0DF;
+            --crean-blue-light: #0BB8FF;
             --crean-white: #F2F7FF;
-            --crean-grey: rgba(255,255,255,0.82);
+            --crean-grey: rgba(255,255,255,0.85);
         }
 
-        /* -----------------------------------------
-           BACKGROUND — ISS + EARTH (your chosen image)
-           + Crean-style top gradient fade
-        ----------------------------------------- */
+        /* ----------------------------------------------------
+           REMOVE STREAMLIT HAZE (THE DARK LAYER)
+        ---------------------------------------------------- */
+        [data-testid="stHeader"],
+        [data-testid="stToolbar"],
+        .stApp > header,
+        .stApp > div:first-child {
+            background: transparent !important;
+        }
+
+        /* ----------------------------------------------------
+           BACKGROUND — Earth + Satellite + Crean gradient fade
+        ---------------------------------------------------- */
         .stApp {
             background:
                 linear-gradient(
-                    rgba(0, 25, 55, 0.85) 0%,
-                    rgba(0, 25, 55, 0.70) 20%,
-                    rgba(0, 25, 55, 0.35) 60%,
-                    rgba(0, 25, 55, 0.15) 100%
+                    rgba(0, 20, 40, 0.88) 0%,
+                    rgba(0, 20, 40, 0.75) 18%,
+                    rgba(0, 20, 40, 0.55) 45%,
+                    rgba(0, 20, 40, 0.35) 70%,
+                    rgba(0, 20, 40, 0.20) 100%
                 ),
                 var(--space-bg, url("https://wallup.net/wp-content/uploads/2016/01/178756-Earth-space-satellite.jpg"))
                 no-repeat center center fixed !important;
@@ -64,72 +76,71 @@ def inject_space_theme_css():
             background-size: cover !important;
         }
 
-        /* -----------------------------------------
-           CLEAN CORPORATE PANEL (Light Glass)
-        ----------------------------------------- */
+        /* ----------------------------------------------------
+           CREAN GLASS PANEL (Light transparent UI)
+        ---------------------------------------------------- */
         .block-container {
-            background: rgba(255, 255, 255, 0.07) !important;
-            backdrop-filter: blur(18px);
+            background: rgba(255, 255, 255, 0.06) !important;
+            backdrop-filter: blur(16px);
             border-radius: 18px !important;
             padding: 32px;
-            border: 1px solid rgba(255,255,255,0.18);
-            box-shadow: 0 0 40px rgba(0,0,0,0.35);
+            border: 1px solid rgba(255,255,255,0.15);
+            box-shadow: 0 0 28px rgba(0,0,0,0.40);
         }
 
-        /* -----------------------------------------
-           CREAN HEADINGS — BOLD & BRIGHT
-        ----------------------------------------- */
+        /* ----------------------------------------------------
+           HEADINGS — bold + glowing blue edge
+        ---------------------------------------------------- */
         h1, h2, h3, h4, h5, h6 {
             color: var(--crean-white) !important;
             font-weight: 800 !important;
-            text-shadow: 0px 0px 14px rgba(0, 160, 223, 0.55);
+            text-shadow: 0 0 14px rgba(0,160,223,0.55);
         }
 
-        /* -----------------------------------------
-           BODY TEXT — white / readable
-        ----------------------------------------- */
+        /* ----------------------------------------------------
+           TEXT — clean & readable
+        ---------------------------------------------------- */
         p, label, span, div, .stMarkdown, .stText {
             color: var(--crean-grey) !important;
-            font-weight: 500;
         }
 
-        /* -----------------------------------------
+        /* ----------------------------------------------------
            INPUT FIELDS
-        ----------------------------------------- */
-        textarea, input, .stTextInput>div>div>input {
+        ---------------------------------------------------- */
+        textarea, input, .stTextInput > div > div > input {
             background: rgba(255, 255, 255, 0.10) !important;
             color: #ffffff !important;
             border-radius: 12px !important;
-            border: 1px solid rgba(255,255,255,0.35) !important;
-            backdrop-filter: blur(6px);
+            border: 1px solid rgba(255,255,255,0.28) !important;
+            backdrop-filter: blur(5px);
         }
 
-        /* -----------------------------------------
-           CREAN BUTTON (bright solid teal)
-        ----------------------------------------- */
-        .stButton>button {
+        /* ----------------------------------------------------
+           CREAN BUTTON — bright blue solid
+        ---------------------------------------------------- */
+        .stButton > button {
             background: var(--crean-blue) !important;
             color: white !important;
             border-radius: 10px !important;
-            padding: 0.7rem 1.7rem;
+            padding: 0.75rem 1.8rem;
             font-weight: 700;
             border: none;
-            box-shadow: 0px 0px 20px rgba(0,160,223,0.45);
+            box-shadow: 0 0 20px rgba(0,160,223,0.45);
             transition: 0.15s ease-in-out;
         }
 
-        .stButton>button:hover {
-            background: #0BB8FF !important;
+        .stButton > button:hover {
+            background: var(--crean-blue-light) !important;
             transform: translateY(-2px);
-            box-shadow: 0px 0px 26px rgba(0,160,223,0.75);
+            box-shadow: 0 0 26px rgba(0,160,223,0.75);
         }
 
-        /* -----------------------------------------
-           CLEAN TABS
-        ----------------------------------------- */
+        /* ----------------------------------------------------
+           TABS
+        ---------------------------------------------------- */
         .stTabs [data-baseweb="tab"] {
-            font-size: 1.1rem;
-            font-weight: 700;
+            font-size: 1.1rem !important;
+            font-weight: 700 !important;
             color: white !important;
         }
 
@@ -138,13 +149,13 @@ def inject_space_theme_css():
             color: var(--crean-blue) !important;
         }
 
-        /* -----------------------------------------
+        /* ----------------------------------------------------
            FILE UPLOAD
-        ----------------------------------------- */
+        ---------------------------------------------------- */
         .stFileUploader {
-            background: rgba(255,255,255,0.10);
+            background: rgba(255,255,255,0.08);
             border-radius: 14px;
-            padding: 12px;
+            padding: 16px;
         }
 
         </style>
