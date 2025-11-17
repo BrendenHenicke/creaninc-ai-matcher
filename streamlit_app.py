@@ -25,7 +25,7 @@ st.set_page_config(page_title="Crean AI Resume Matcher", page_icon="🤖", layou
 
 
 # ============================================================
-# CINEMATIC SPACE WINDOW THEME (UPDATED + CLEAN)
+# CINEMATIC SPACE WINDOW THEME (FINAL VERSION)
 # ============================================================
 def inject_space_theme_css():
     st.markdown(
@@ -39,9 +39,10 @@ def inject_space_theme_css():
             color: #eaf3ff !important;
         }
 
-        /* FULL BOLD BACKGROUND (EARTH AT NIGHT) */
+        /* BACKGROUND — Earth + Satellite */
         .stApp {
-            background: var(--space-bg) no-repeat center center fixed !important;
+            background: var(--space-bg, url("https://wallup.net/wp-content/uploads/2016/01/178756-Earth-space-satellite.jpg"))
+                        no-repeat center center fixed !important;
             background-size: cover !important;
             animation: bgDrift 55s ease-in-out infinite alternate;
         }
@@ -52,7 +53,7 @@ def inject_space_theme_css():
             100% { background-position: center -30px; }
         }
 
-        /* RECTANGULAR SPACECRAFT WINDOW FRAME */
+        /* RECTANGULAR SPACE WINDOW FRAME */
         .stApp::before {
             content: "";
             position: fixed;
@@ -62,7 +63,7 @@ def inject_space_theme_css():
             bottom: 25px;
 
             border-radius: 28px;
-            border: 22px solid rgba(15, 15, 18, 0.92);
+            border: 22px solid rgba(10, 10, 14, 0.92);
 
             box-shadow:
                 inset 0 0 75px rgba(0,0,0,0.85),
@@ -73,39 +74,40 @@ def inject_space_theme_css():
             z-index: -1;
         }
 
-        /* GLASS PANEL FOR CONTENT */
+        /* GLASS PANEL */
         .block-container {
-            background: rgba(5, 10, 22, 0.55) !important;
-            backdrop-filter: blur(16px);
+            background: rgba(5, 10, 22, 0.60) !important;
+            backdrop-filter: blur(18px);
             border-radius: 22px !important;
-            border: 1px solid rgba(120, 180, 255, 0.25);
+            border: 1px solid rgba(120, 180, 255, 0.35);
             padding: 32px;
             box-shadow:
                 0 0 40px rgba(0, 0, 0, 0.85),
                 0 0 55px rgba(50, 120, 255, 0.20);
         }
 
-        /* READABLE TEXT */
+        /* HEADINGS */
         h1, h2, h3, h4, h5, h6 {
-            color: #eaf3ff !important;
+            color: #f2f7ff !important;
             font-weight: 700 !important;
-            text-shadow: 0 0 18px rgba(80, 180, 255, 0.40);
+            text-shadow: 0 0 18px rgba(80, 180, 255, 0.45);
         }
 
+        /* READABLE TEXT */
         p, label, span, div, .stMarkdown {
-            color: #ddecff !important;
+            color: #e9f1ff !important;
             font-weight: 500;
         }
 
-        /* TEXT INPUTS / TEXTAREAS */
+        /* INPUTS */
         textarea, input, .stTextInput>div>div>input {
-            background: rgba(255, 255, 255, 0.06) !important;
+            background: rgba(255, 255, 255, 0.10) !important;
             color: #ffffff !important;
             border-radius: 12px !important;
-            border: 1px solid rgba(180, 200, 255, 0.3) !important;
+            border: 1px solid rgba(180, 200, 255, 0.35) !important;
         }
 
-        /* NEON BUTTONS */
+        /* BUTTONS — neon gradient */
         .stButton>button {
             background: linear-gradient(135deg, #0ea5e9, #22c55e);
             color: white !important;
@@ -132,7 +134,9 @@ def inject_space_theme_css():
     )
 
 
-# Inject background from bytes
+# ============================================================
+# BACKGROUND IMAGE PERSISTENCE
+# ============================================================
 def set_space_bg_from_bytes(data: bytes, mime: str = "image/jpeg"):
     b64 = base64.b64encode(data).decode("utf-8")
     uri = f"data:{mime};base64,{b64}"
@@ -149,7 +153,6 @@ def set_space_bg_from_bytes(data: bytes, mime: str = "image/jpeg"):
     )
 
 
-# Load stored background
 def load_persistent_background():
     if os.path.exists(BACKGROUND_PATH):
         with open(BACKGROUND_PATH, "rb") as f:
@@ -157,7 +160,6 @@ def load_persistent_background():
         set_space_bg_from_bytes(data)
 
 
-# Save new background
 def save_new_background(uploaded_file):
     bytes_data = uploaded_file.getvalue()
     with open(BACKGROUND_PATH, "wb") as f:
@@ -173,7 +175,7 @@ def save_new_background(uploaded_file):
 
 
 # ============================================================
-# APPLY THE THEME
+# APPLY THEME
 # ============================================================
 inject_space_theme_css()
 load_persistent_background()
@@ -378,4 +380,3 @@ with tabs[3]:
             st.success("New background saved. Refresh page.")
         else:
             st.success("Settings updated.")
-
