@@ -9,7 +9,6 @@ import os
 import base64
 from collections import Counter
 
-
 # ============================================================
 # CONFIG
 # ============================================================
@@ -25,107 +24,127 @@ st.set_page_config(page_title="Crean AI Resume Matcher", page_icon="🤖", layou
 
 
 # ============================================================
-# CINEMATIC SPACE WINDOW THEME (FINAL VERSION)
+# CREAN CORPORATE SPACE THEME
 # ============================================================
 def inject_space_theme_css():
     st.markdown(
         """
         <style>
+        
+        /* -----------------------------------------
+           GLOBAL FONT + CREAN CORPORATE COLORS
+        ----------------------------------------- */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap');
 
-        /* GLOBAL FONT + RESET */
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
         html, body, [class*="css"] {
             font-family: 'Inter', sans-serif !important;
-            color: #eaf3ff !important;
         }
 
-        /* BACKGROUND — Earth + Satellite */
+        :root {
+            --crean-blue: #00A0DF;
+            --crean-white: #F2F7FF;
+            --crean-grey: rgba(255,255,255,0.82);
+        }
+
+        /* -----------------------------------------
+           BACKGROUND — ISS + EARTH (your chosen image)
+           + Crean-style top gradient fade
+        ----------------------------------------- */
         .stApp {
-            background: var(--space-bg, url("https://wallup.net/wp-content/uploads/2016/01/178756-Earth-space-satellite.jpg"))
-                        no-repeat center center fixed !important;
+            background:
+                linear-gradient(
+                    rgba(0, 25, 55, 0.85) 0%,
+                    rgba(0, 25, 55, 0.70) 20%,
+                    rgba(0, 25, 55, 0.35) 60%,
+                    rgba(0, 25, 55, 0.15) 100%
+                ),
+                var(--space-bg, url("https://wallup.net/wp-content/uploads/2016/01/178756-Earth-space-satellite.jpg"))
+                no-repeat center center fixed !important;
+
             background-size: cover !important;
-            animation: bgDrift 55s ease-in-out infinite alternate;
         }
 
-        @keyframes bgDrift {
-            0%   { background-position: center top; }
-            50%  { background-position: center 40px; }
-            100% { background-position: center -30px; }
-        }
-
-        /* RECTANGULAR SPACE WINDOW FRAME */
-        .stApp::before {
-            content: "";
-            position: fixed;
-            top: 25px;
-            left: 25px;
-            right: 25px;
-            bottom: 25px;
-
-            border-radius: 28px;
-            border: 22px solid rgba(10, 10, 14, 0.92);
-
-            box-shadow:
-                inset 0 0 75px rgba(0,0,0,0.85),
-                inset 0 0 22px rgba(0,0,0,0.6),
-                0 0 55px rgba(0,0,0,0.9);
-
-            pointer-events: none;
-            z-index: -1;
-        }
-
-        /* GLASS PANEL */
+        /* -----------------------------------------
+           CLEAN CORPORATE PANEL (Light Glass)
+        ----------------------------------------- */
         .block-container {
-            background: rgba(5, 10, 22, 0.60) !important;
+            background: rgba(255, 255, 255, 0.07) !important;
             backdrop-filter: blur(18px);
-            border-radius: 22px !important;
-            border: 1px solid rgba(120, 180, 255, 0.35);
+            border-radius: 18px !important;
             padding: 32px;
-            box-shadow:
-                0 0 40px rgba(0, 0, 0, 0.85),
-                0 0 55px rgba(50, 120, 255, 0.20);
+            border: 1px solid rgba(255,255,255,0.18);
+            box-shadow: 0 0 40px rgba(0,0,0,0.35);
         }
 
-        /* HEADINGS */
+        /* -----------------------------------------
+           CREAN HEADINGS — BOLD & BRIGHT
+        ----------------------------------------- */
         h1, h2, h3, h4, h5, h6 {
-            color: #f2f7ff !important;
-            font-weight: 700 !important;
-            text-shadow: 0 0 18px rgba(80, 180, 255, 0.45);
+            color: var(--crean-white) !important;
+            font-weight: 800 !important;
+            text-shadow: 0px 0px 14px rgba(0, 160, 223, 0.55);
         }
 
-        /* READABLE TEXT */
-        p, label, span, div, .stMarkdown {
-            color: #e9f1ff !important;
+        /* -----------------------------------------
+           BODY TEXT — white / readable
+        ----------------------------------------- */
+        p, label, span, div, .stMarkdown, .stText {
+            color: var(--crean-grey) !important;
             font-weight: 500;
         }
 
-        /* INPUTS */
+        /* -----------------------------------------
+           INPUT FIELDS
+        ----------------------------------------- */
         textarea, input, .stTextInput>div>div>input {
             background: rgba(255, 255, 255, 0.10) !important;
             color: #ffffff !important;
             border-radius: 12px !important;
-            border: 1px solid rgba(180, 200, 255, 0.35) !important;
+            border: 1px solid rgba(255,255,255,0.35) !important;
+            backdrop-filter: blur(6px);
         }
 
-        /* BUTTONS — neon gradient */
+        /* -----------------------------------------
+           CREAN BUTTON (bright solid teal)
+        ----------------------------------------- */
         .stButton>button {
-            background: linear-gradient(135deg, #0ea5e9, #22c55e);
+            background: var(--crean-blue) !important;
             color: white !important;
-            border-radius: 999px;
-            padding: 0.65rem 1.6rem;
+            border-radius: 10px !important;
+            padding: 0.7rem 1.7rem;
             font-weight: 700;
             border: none;
-            box-shadow:
-                0 0 18px rgba(56, 189, 248, 0.75),
-                0 0 32px rgba(34, 197, 94, 0.55);
-            transition: 0.18s ease-in-out;
+            box-shadow: 0px 0px 20px rgba(0,160,223,0.45);
+            transition: 0.15s ease-in-out;
         }
 
         .stButton>button:hover {
-            transform: translateY(-2px) scale(1.03);
-            box-shadow:
-                0 0 25px rgba(56, 189, 248, 1),
-                0 0 45px rgba(34, 197, 94, 0.95);
+            background: #0BB8FF !important;
+            transform: translateY(-2px);
+            box-shadow: 0px 0px 26px rgba(0,160,223,0.75);
+        }
+
+        /* -----------------------------------------
+           CLEAN TABS
+        ----------------------------------------- */
+        .stTabs [data-baseweb="tab"] {
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: white !important;
+        }
+
+        .stTabs [aria-selected="true"] {
+            border-bottom: 3px solid var(--crean-blue) !important;
+            color: var(--crean-blue) !important;
+        }
+
+        /* -----------------------------------------
+           FILE UPLOAD
+        ----------------------------------------- */
+        .stFileUploader {
+            background: rgba(255,255,255,0.10);
+            border-radius: 14px;
+            padding: 12px;
         }
 
         </style>
@@ -135,7 +154,7 @@ def inject_space_theme_css():
 
 
 # ============================================================
-# BACKGROUND IMAGE PERSISTENCE
+# BACKGROUND PERSISTENCE
 # ============================================================
 def set_space_bg_from_bytes(data: bytes, mime: str = "image/jpeg"):
     b64 = base64.b64encode(data).decode("utf-8")
@@ -166,11 +185,7 @@ def save_new_background(uploaded_file):
         f.write(bytes_data)
 
     ext = uploaded_file.name.lower()
-    mime = (
-        "image/png" if ext.endswith(".png")
-        else "image/webp" if ext.endswith(".webp")
-        else "image/jpeg"
-    )
+    mime = "image/png" if ext.endswith(".png") else "image/webp" if ext.endswith(".webp") else "image/jpeg"
     set_space_bg_from_bytes(bytes_data, mime)
 
 
@@ -192,7 +207,7 @@ if "backend_url" not in st.session_state:
 # HEADER
 # ============================================================
 st.title("🚀 Crean Inc. AI Resume Matcher")
-st.caption("Explore your talent universe through a cinematic space-station window.")
+st.caption("Industry-grade AI talent identification — now in your browser.")
 
 
 tabs = st.tabs(["🏠 Home", "📂 Resume Manager", "📊 Analytics", "⚙️ Settings"])
@@ -220,8 +235,8 @@ with tabs[0]:
         except:
             return ""
 
-    job_description = st.text_area("✍️ Paste the job description here:", height=200)
-    uploaded_file = st.file_uploader("📄 Or upload a job description file", type=["pdf", "docx", "txt"])
+    job_description = st.text_area("Paste the job description here:", height=200)
+    uploaded_file = st.file_uploader("or upload a job description file", type=["pdf", "docx", "txt"])
 
     if uploaded_file:
         extracted = extract_text(uploaded_file)
@@ -236,7 +251,7 @@ with tabs[0]:
             if not job_description.strip():
                 st.warning("Please provide or upload a job description first.")
             else:
-                with st.spinner("Analyzing resumes across your talent universe..."):
+                with st.spinner("Analyzing resumes..."):
                     try:
                         t0 = time.time()
                         res = requests.post(
@@ -270,7 +285,7 @@ with tabs[0]:
             if ping.status_code == 200:
                 st.success("Backend online ✔")
             else:
-                st.warning("Backend returned error")
+                st.warning("Backend error")
         except:
             st.warning("Backend offline")
 
@@ -327,7 +342,7 @@ with tabs[1]:
                         requests.post(f"{st.session_state.backend_url}/delete_resume", json={"idx": item["idx"]})
                         st.warning("Deleted. Refresh the page.")
         else:
-            st.error("Could not load resumes.")
+            st.error("Couldn't load resumes.")
     except:
         st.error("Backend not reachable.")
 
@@ -364,13 +379,12 @@ with tabs[2]:
 with tabs[3]:
     st.subheader("Frontend Settings")
 
-    st.write("Backend URL:")
-    new_url = st.text_input("", value=st.session_state.backend_url)
+    new_url = st.text_input("Backend URL:", value=st.session_state.backend_url)
 
-    st.markdown("### Space Station Background Image")
-    st.caption("Upload a new Earth-at-night photo to permanently change the window view.")
+    st.markdown("### Background Image Override")
+    st.caption("Upload an Earth-at-night photo to permanently replace the default view.")
 
-    bg_file = st.file_uploader("Upload Image", type=["png", "jpg", "jpeg", "webp"])
+    bg_file = st.file_uploader("Upload Background Image", type=["png", "jpg", "jpeg", "webp"])
 
     if st.button("Apply Settings"):
         st.session_state.backend_url = new_url
