@@ -8,12 +8,13 @@ import time
 import os
 import base64
 from collections import Counter
+import numpy as np   # <-- needed for the graph
 
 # ============================================================
 # CONFIG
 # ============================================================
 DEFAULT_BACKEND = os.getenv("BACKEND_URL", "https://creaninc-ai-backend.onrender.com")
-LOG_FILE = "frontend_logs.json"  # still here if you ever want analytics again
+LOG_FILE = "frontend_logs.json"
 
 BACKGROUND_DIR = "backgrounds"
 BACKGROUND_FILE = "space_window_bg.bin"
@@ -30,10 +31,6 @@ def inject_space_theme_css():
     st.markdown(
         """
         <style>
-        
-        /* -----------------------------------------
-           GLOBAL FONT + CREAN CORPORATE COLORS
-        ----------------------------------------- */
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap');
 
         html, body, [class*="css"] {
@@ -46,9 +43,6 @@ def inject_space_theme_css():
             --crean-grey: rgba(255,255,255,0.86);
         }
 
-        /* -----------------------------------------
-           BACKGROUND — ISS + EARTH
-        ----------------------------------------- */
         .stApp {
             background:
                 linear-gradient(
@@ -63,9 +57,6 @@ def inject_space_theme_css():
             background-size: cover !important;
         }
 
-        /* -----------------------------------------
-           CLEAN CORPORATE PANEL
-        ----------------------------------------- */
         .block-container {
             background: rgba(255, 255, 255, 0.04) !important;
             backdrop-filter: blur(16px);
@@ -75,37 +66,24 @@ def inject_space_theme_css():
             box-shadow: 0 0 32px rgba(0,0,0,0.35);
         }
 
-        /* -----------------------------------------
-           CREAN HEADINGS — BOLD & BRIGHT
-        ----------------------------------------- */
         h1, h2, h3, h4, h5, h6 {
             color: var(--crean-white) !important;
             font-weight: 800 !important;
             text-shadow: 0px 0px 14px rgba(0, 160, 223, 0.55);
         }
 
-        /* -----------------------------------------
-           BODY TEXT — white / readable
-        ----------------------------------------- */
         p, label, span, div, .stMarkdown, .stText {
             color: var(--crean-grey) !important;
             font-weight: 500;
         }
 
-        /* -----------------------------------------
-           INPUT FIELDS
-        ----------------------------------------- */
         textarea, input, .stTextInput>div>div>input {
             background: rgba(255, 255, 255, 0.10) !important;
             color: #ffffff !important;
             border-radius: 12px !important;
             border: 1px solid rgba(255,255,255,0.35) !important;
-            backdrop-filter: blur(6px);
         }
 
-        /* -----------------------------------------
-           CREAN BUTTON
-        ----------------------------------------- */
         .stButton>button {
             background: var(--crean-blue) !important;
             color: white !important;
@@ -123,9 +101,6 @@ def inject_space_theme_css():
             box-shadow: 0px 0px 26px rgba(0,160,223,0.75);
         }
 
-        /* -----------------------------------------
-           CLEAN TABS
-        ----------------------------------------- */
         .stTabs [data-baseweb="tab"] {
             font-size: 1.05rem;
             font-weight: 700;
@@ -137,15 +112,11 @@ def inject_space_theme_css():
             color: var(--crean-blue) !important;
         }
 
-        /* -----------------------------------------
-           FILE UPLOAD
-        ----------------------------------------- */
         .stFileUploader {
             background: rgba(255,255,255,0.10);
             border-radius: 14px;
             padding: 12px;
         }
-
         </style>
         """,
         unsafe_allow_html=True,
@@ -158,7 +129,6 @@ def inject_space_theme_css():
 def set_space_bg_from_bytes(data: bytes, mime: str = "image/jpeg"):
     b64 = base64.b64encode(data).decode("utf-8")
     uri = f"data:{mime};base64,{b64}"
-
     st.markdown(
         f"""
         <style>
@@ -188,12 +158,8 @@ def save_new_background(uploaded_file):
     set_space_bg_from_bytes(bytes_data, mime)
 
 
-# ============================================================
-# APPLY THEME
-# ============================================================
 inject_space_theme_css()
 load_persistent_background()
-
 
 # ============================================================
 # BACKEND URL STATE
@@ -207,7 +173,6 @@ if "backend_url" not in st.session_state:
 # ============================================================
 st.title("🚀 Crean Inc. AI Resume Matcher")
 st.caption("Industry-grade AI talent identification — now in your browser.")
-
 
 tabs = st.tabs(["🏠 Home", "📂 Resume Manager", "📄 Proposals", "⚙️ Settings"])
 
@@ -264,9 +229,17 @@ with tabs[0]:
                             data = res.json()
                             matches = data.get("matches", [])
 
-                            # store results for proposals tab
+                            # New: store results for graph + proposals tabs
                             st.session_state.last_results = matches
                             st.session_state.last_job_description = job_description
+
+                            # Fetch graph embeddings
+                            try:
+                                graph_res = requests.get(f"{st.session_state.backend_url}/graph_data", timeout=10)
+                                if graph_res.status_code == 200:
+                                    st.session_state.last_graph_data = graph_res.json()
+                            except:
+                                st.warning("Graph data unavailable from backend.")
 
                             if matches:
                                 st.success(f"Found {len(matches)} matching engineers (in {dt:.2f}s):")
@@ -296,6 +269,7 @@ with tabs[0]:
 
 # ============================================================
 # TAB 2: RESUME MANAGER
+# (unchanged)
 # ============================================================
 with tabs[1]:
     st.subheader("Upload Resumes to Backend (Persistent Storage)")
@@ -337,8 +311,6 @@ with tabs[1]:
                 with c1:
                     st.write(f"**[{item['idx']}] {item['name']}** • {item['chars']} chars")
                 with c2:
-                    # NOTE: preview endpoint only works if you implemented it on backend;
-                    # if not, this button just won't do much.
                     if st.button("👁 View", key=f"view{item['idx']}"):
                         prev = requests.get(
                             f"{st.session_state.backend_url}/preview_resume",
@@ -360,7 +332,7 @@ with tabs[1]:
 
 
 # ============================================================
-# TAB 3: PROPOSALS
+# TAB 3: PROPOSALS *** UPDATED WITH MULTI-LINE GRAPH ***
 # ============================================================
 with tabs[2]:
     st.subheader("Client-Ready Engineer Proposals")
@@ -368,13 +340,65 @@ with tabs[2]:
     results = st.session_state.get("last_results", None)
 
     if not results:
-        st.info("Run a search on the Home tab to generate proposals for the top 5 engineers.")
+        st.info("Run a search on the Home tab to generate proposals.")
     else:
         for m in results:
             st.markdown(f"### Proposal for {m['name']} (Rank #{m['rank']})")
-            proposal_text = m.get("proposal") or "No proposal text available for this candidate."
-            st.write(proposal_text)
+            st.write(m.get("proposal", "No proposal available."))
             st.markdown("---")
+
+    st.subheader("📈 Resume–Job Description Similarity Graph")
+
+    if "last_graph_data" in st.session_state:
+        graph_data = st.session_state["last_graph_data"]
+
+        import pandas as pd
+        import plotly.graph_objects as go
+
+        df = pd.DataFrame(graph_data["engineers"])
+        job_vec = np.array(graph_data["job_description"])
+
+        # cosine similarity function
+        def cosine_similarity(a, b):
+            return float(np.dot(a, b) / ((np.linalg.norm(a) * np.linalg.norm(b)) + 1e-10))
+
+        df["similarity"] = df["embedding"].apply(
+            lambda emb: cosine_similarity(np.array(emb), job_vec)
+        )
+
+        fig = go.Figure()
+
+        # plot each engineer
+        for _, row in df.iterrows():
+            fig.add_trace(go.Scatter(
+                x=[0, 1],
+                y=[row["similarity"], row["similarity"]],
+                mode="lines+markers",
+                name=row["name"],
+                line=dict(width=3)
+            ))
+
+        # baseline
+        fig.add_trace(go.Scatter(
+            x=[0, 1],
+            y=[1, 1],
+            mode="lines",
+            name="Job Description Baseline",
+            line=dict(color="white", width=4, dash="dot")
+        ))
+
+        fig.update_layout(
+            title="Resume Similarity vs Job Description",
+            xaxis_title="Line (not time-based)",
+            yaxis_title="Cosine Similarity",
+            template="plotly_dark",
+            height=500,
+        )
+
+        st.plotly_chart(fig, use_container_width=True)
+
+    else:
+        st.info("Graph will appear after first search.")
 
 
 # ============================================================
@@ -398,4 +422,3 @@ with tabs[3]:
             st.success("New background saved. Refresh page.")
         else:
             st.success("Settings updated.")
-
