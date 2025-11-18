@@ -200,22 +200,24 @@ def build_explain_prompt(job_description, resume_name, resume_text, rank, total)
 
     return (
         "You are an expert technical recruiter performing a structured FIT + GAP analysis.\n\n"
-        "Your output MUST contain **three separate paragraphs**, each 3–4 full sentences, "
-        "with a blank line between paragraphs. Use plain text only. Follow this structure:\n\n"
+        "You MUST return your answer in EXACTLY **three clearly separated paragraphs**, "
+        "each beginning with the labels below. Include a blank line between paragraphs.\n\n"
 
-        "Paragraph 1 — Fit Summary:\n"
-        "Explain ONLY the positive reasons this candidate is a strong match. Highlight skills, "
-        "experience, achievements, and alignment with the job description. Do NOT mention gaps or weaknesses here.\n\n"
+        "1. Positive Fit:\n"
+        "<Write 3–4 full sentences explaining why the candidate is a strong match. "
+        "Focus ONLY on strengths, relevant skills, relevant experience, and why they ranked "
+        f"#{rank} out of {total}.>\n\n"
 
-        "Paragraph 2 — Why They Are Not a Perfect Match:\n"
-        "Explain what prevents this candidate from being an EXACT match. Describe partial mismatches, "
-        "limitations, weaker areas, or missing context that affect perfect alignment.\n\n"
+        "2. Why Not a Perfect Match:\n"
+        "<Write 3–4 sentences explaining WHY this candidate is not a 100% perfect match. "
+        "Explain which requirements they partially meet or only indirectly meet.>\n\n"
 
-        "Paragraph 3 — Missing Skills or Required Experience:\n"
-        "List the concrete skills, certifications, technologies, domain experience, or keywords that "
-        "are *absent from the resume* but required or highly valuable for the job.\n\n"
+        "3. Missing Skills:\n"
+        "<Write 3–4 sentences listing SPECIFIC missing skills, keywords, certifications, "
+        "technologies, tools, or experience gaps that prevent them from being an ideal fit.>\n\n"
 
-        f"NOTE: This candidate ranked #{rank} out of {total}. Do not mention other candidates.\n\n"
+        "Do NOT combine sections. Do NOT remove the section labels. Do NOT use bullet points.\n\n"
+
         f"JOB DESCRIPTION:\n{job_description}\n\n"
         f"RESUME ({resume_name}) EXCERPT:\n{short_resume}"
     )
