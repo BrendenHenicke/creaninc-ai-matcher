@@ -243,7 +243,7 @@ def get_reasoning_for_resume(prompt, cache_key):
         resp = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=320,
+            max_tokens=600,
             temperature=0.65,
         )
         reasoning = resp.choices[0].message.content.strip()
@@ -262,7 +262,7 @@ def get_proposal_for_resume(prompt, cache_key):
         resp = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=400,
+            max_tokens=500,
             temperature=0.65,
         )
         text = resp.choices[0].message.content.strip()
