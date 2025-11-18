@@ -12,7 +12,7 @@ from PyPDF2 import PdfReader
 import docx
 import io
 import sqlite3, hashlib, json, time
-from concurrent.futures import ThreadPoolExecutor, as_completed  # <-- NEW
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import sys
 import traceback
 
@@ -50,7 +50,16 @@ CORS(app)
 load_dotenv()
 
 # remove proxy vars to prevent OpenAI error
-for _k in ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "ALL_PROXY", "all_proxy", "NO_PROXY", "no_proxy"]:
+for _k in [
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "http_proxy",
+    "https_proxy",
+    "ALL_PROXY",
+    "all_proxy",
+    "NO_PROXY",
+    "no_proxy",
+]:
     os.environ.pop(_k, None)
 
 api_key = os.getenv("OPENAI_API_KEY")
@@ -58,11 +67,12 @@ if not api_key:
     logger.error("Missing OPENAI_API_KEY in env variables.")
     raise ValueError("OPENAI_API_KEY missing.")
 
-client = OpenAI(api_key=api_key)
+# Add a slightly higher timeout for slower requests
+client = OpenAI(api_key=api_key, timeout=120.0)
 
 # ========= FAISS + Store =========
 index = None
-resume_store = []  # list of dicts
+resume_store = []  # list of dicts: {"name": str, "text": str}
 
 
 def _new_index():
@@ -120,13 +130,13 @@ _load_index_and_store()
 def get_db_connection():
     conn = sqlite3.connect(CACHE_DB)
     conn.execute(
-        '''
+        """
         CREATE TABLE IF NOT EXISTS cache (
             key TEXT PRIMARY KEY,
             value TEXT,
             created_at REAL
         )
-        '''
+        """
     )
     return conn
 
@@ -348,6 +358,55 @@ def search():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/graph_data", methods=["POST"])
+def graph_data():
+    """
+    Returns similarity scores for the top-k engineers for a given job description.
+    This is for the frontend graph (multi-line view) — no embeddings, just scores.
+    """
+    try:
+        data = request.get_json(force=True) or {}
+        job_description = data.get("job_description", "")
+
+        if not job_description.strip():
+            return jsonify({"error": "Job description missing"}), 400
+
+        # Embed job description
+        emb = client.embeddings.create(model=EMBED_MODEL, input=job_description)
+        job_vec = np.array(emb.data[0].embedding, dtype="float32").reshape(1, -1)
+
+        if index.ntotal == 0:
+            return jsonify({"points": []}), 200
+
+        k = min(5, index.ntotal)
+        distances, indices = index.search(job_vec, k=k)
+        scores = 1 / (1 + distances)
+
+        points = []
+        for pos, idx_val in enumerate(indices[0][:k]):
+            idx_int = int(idx_val)
+            entry = resume_store[idx_int]
+            name = entry["name"]
+            similarity = float(scores[0][pos])
+            points.append(
+                {
+                    "rank": pos + 1,
+                    "name": name,
+                    "similarity": similarity,
+                }
+            )
+
+        return jsonify(
+            {
+                "job_description_snippet": job_description[:300],
+                "points": points,
+            }
+        )
+    except Exception as e:
+        logger.exception("/graph_data error")
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/upload_resume", methods=["POST"])
 def upload_resume():
     try:
@@ -398,7 +457,9 @@ def delete_resume():
         removed = resume_store.pop(idx)
         _rebuild_full_index()
 
-        return jsonify({"ok": True, "removed": removed["name"], "remaining": len(resume_store)})
+        return jsonify(
+            {"ok": True, "removed": removed["name"], "remaining": len(resume_store)}
+        )
     except Exception:
         return jsonify({"error": "Delete failed"}), 500
 
@@ -408,4 +469,3 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     print(f"🚀 Backend running on port {port}")
     app.run(host="0.0.0.0", port=port)
-
