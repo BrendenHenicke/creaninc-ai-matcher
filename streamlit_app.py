@@ -13,7 +13,7 @@ from collections import Counter
 # CONFIG
 # ============================================================
 DEFAULT_BACKEND = os.getenv("BACKEND_URL", "https://creaninc-ai-backend.onrender.com")
-LOG_FILE = "frontend_logs.json"
+LOG_FILE = "frontend_logs.json"  # still here if you ever want analytics again
 
 BACKGROUND_DIR = "backgrounds"
 BACKGROUND_FILE = "space_window_bg.bin"
@@ -30,45 +30,32 @@ def inject_space_theme_css():
     st.markdown(
         """
         <style>
-
-        /* ----------------------------------------------------
-           GLOBAL FONT + CREAN BRAND COLORS
-        ---------------------------------------------------- */
+        
+        /* -----------------------------------------
+           GLOBAL FONT + CREAN CORPORATE COLORS
+        ----------------------------------------- */
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap');
 
         html, body, [class*="css"] {
             font-family: 'Inter', sans-serif !important;
-            color: #F2F7FF !important;
         }
 
         :root {
             --crean-blue: #00A0DF;
-            --crean-blue-light: #0BB8FF;
             --crean-white: #F2F7FF;
-            --crean-grey: rgba(255,255,255,0.85);
+            --crean-grey: rgba(255,255,255,0.86);
         }
 
-        /* ----------------------------------------------------
-           REMOVE STREAMLIT HAZE (THE DARK LAYER)
-        ---------------------------------------------------- */
-        [data-testid="stHeader"],
-        [data-testid="stToolbar"],
-        .stApp > header,
-        .stApp > div:first-child {
-            background: transparent !important;
-        }
-
-        /* ----------------------------------------------------
-           BACKGROUND — Earth + Satellite + Crean gradient fade
-        ---------------------------------------------------- */
+        /* -----------------------------------------
+           BACKGROUND — ISS + EARTH
+        ----------------------------------------- */
         .stApp {
             background:
                 linear-gradient(
-                    rgba(0, 20, 40, 0.88) 0%,
-                    rgba(0, 20, 40, 0.75) 18%,
-                    rgba(0, 20, 40, 0.55) 45%,
-                    rgba(0, 20, 40, 0.35) 70%,
-                    rgba(0, 20, 40, 0.20) 100%
+                    rgba(0, 25, 55, 0.40) 0%,
+                    rgba(0, 25, 55, 0.25) 35%,
+                    rgba(0, 25, 55, 0.10) 65%,
+                    rgba(0, 25, 55, 0.05) 100%
                 ),
                 var(--space-bg, url("https://wallup.net/wp-content/uploads/2016/01/178756-Earth-space-satellite.jpg"))
                 no-repeat center center fixed !important;
@@ -76,71 +63,72 @@ def inject_space_theme_css():
             background-size: cover !important;
         }
 
-        /* ----------------------------------------------------
-           CREAN GLASS PANEL (Light transparent UI)
-        ---------------------------------------------------- */
+        /* -----------------------------------------
+           CLEAN CORPORATE PANEL
+        ----------------------------------------- */
         .block-container {
-            background: rgba(255, 255, 255, 0.06) !important;
+            background: rgba(255, 255, 255, 0.04) !important;
             backdrop-filter: blur(16px);
             border-radius: 18px !important;
             padding: 32px;
-            border: 1px solid rgba(255,255,255,0.15);
-            box-shadow: 0 0 28px rgba(0,0,0,0.40);
+            border: 1px solid rgba(255,255,255,0.16);
+            box-shadow: 0 0 32px rgba(0,0,0,0.35);
         }
 
-        /* ----------------------------------------------------
-           HEADINGS — bold + glowing blue edge
-        ---------------------------------------------------- */
+        /* -----------------------------------------
+           CREAN HEADINGS — BOLD & BRIGHT
+        ----------------------------------------- */
         h1, h2, h3, h4, h5, h6 {
             color: var(--crean-white) !important;
             font-weight: 800 !important;
-            text-shadow: 0 0 14px rgba(0,160,223,0.55);
+            text-shadow: 0px 0px 14px rgba(0, 160, 223, 0.55);
         }
 
-        /* ----------------------------------------------------
-           TEXT — clean & readable
-        ---------------------------------------------------- */
+        /* -----------------------------------------
+           BODY TEXT — white / readable
+        ----------------------------------------- */
         p, label, span, div, .stMarkdown, .stText {
             color: var(--crean-grey) !important;
+            font-weight: 500;
         }
 
-        /* ----------------------------------------------------
+        /* -----------------------------------------
            INPUT FIELDS
-        ---------------------------------------------------- */
-        textarea, input, .stTextInput > div > div > input {
+        ----------------------------------------- */
+        textarea, input, .stTextInput>div>div>input {
             background: rgba(255, 255, 255, 0.10) !important;
             color: #ffffff !important;
             border-radius: 12px !important;
-            border: 1px solid rgba(255,255,255,0.28) !important;
-            backdrop-filter: blur(5px);
+            border: 1px solid rgba(255,255,255,0.35) !important;
+            backdrop-filter: blur(6px);
         }
 
-        /* ----------------------------------------------------
-           CREAN BUTTON — bright blue solid
-        ---------------------------------------------------- */
-        .stButton > button {
+        /* -----------------------------------------
+           CREAN BUTTON
+        ----------------------------------------- */
+        .stButton>button {
             background: var(--crean-blue) !important;
             color: white !important;
             border-radius: 10px !important;
-            padding: 0.75rem 1.8rem;
+            padding: 0.7rem 1.7rem;
             font-weight: 700;
             border: none;
-            box-shadow: 0 0 20px rgba(0,160,223,0.45);
+            box-shadow: 0px 0px 20px rgba(0,160,223,0.45);
             transition: 0.15s ease-in-out;
         }
 
-        .stButton > button:hover {
-            background: var(--crean-blue-light) !important;
+        .stButton>button:hover {
+            background: #0BB8FF !important;
             transform: translateY(-2px);
-            box-shadow: 0 0 26px rgba(0,160,223,0.75);
+            box-shadow: 0px 0px 26px rgba(0,160,223,0.75);
         }
 
-        /* ----------------------------------------------------
-           TABS
-        ---------------------------------------------------- */
+        /* -----------------------------------------
+           CLEAN TABS
+        ----------------------------------------- */
         .stTabs [data-baseweb="tab"] {
-            font-size: 1.1rem !important;
-            font-weight: 700 !important;
+            font-size: 1.05rem;
+            font-weight: 700;
             color: white !important;
         }
 
@@ -149,13 +137,13 @@ def inject_space_theme_css():
             color: var(--crean-blue) !important;
         }
 
-        /* ----------------------------------------------------
+        /* -----------------------------------------
            FILE UPLOAD
-        ---------------------------------------------------- */
+        ----------------------------------------- */
         .stFileUploader {
-            background: rgba(255,255,255,0.08);
+            background: rgba(255,255,255,0.10);
             border-radius: 14px;
-            padding: 16px;
+            padding: 12px;
         }
 
         </style>
@@ -221,7 +209,7 @@ st.title("🚀 Crean Inc. AI Resume Matcher")
 st.caption("Industry-grade AI talent identification — now in your browser.")
 
 
-tabs = st.tabs(["🏠 Home", "📂 Resume Manager", "📊 Analytics", "⚙️ Settings"])
+tabs = st.tabs(["🏠 Home", "📂 Resume Manager", "📄 Proposals", "⚙️ Settings"])
 
 
 # ============================================================
@@ -243,7 +231,7 @@ with tabs[0]:
                 enc = chardet.detect(raw)["encoding"]
                 return raw.decode(enc or "utf-8", errors="ignore")
             return ""
-        except:
+        except Exception:
             return ""
 
     job_description = st.text_area("Paste the job description here:", height=200)
@@ -276,12 +264,17 @@ with tabs[0]:
                             data = res.json()
                             matches = data.get("matches", [])
 
+                            # store results for proposals tab
+                            st.session_state.last_results = matches
+                            st.session_state.last_job_description = job_description
+
                             if matches:
                                 st.success(f"Found {len(matches)} matching engineers (in {dt:.2f}s):")
                                 for m in matches:
                                     st.markdown(f"### ⭐ {m['name']}")
                                     st.write(f"Rank: {m['rank']} • Score: {m['score']:.2f}")
-                                    st.write(f"**AI reasoning:** {m['reasoning']}")
+                                    st.write("**Fit + Gap Analysis:**")
+                                    st.write(m["reasoning"])
                             else:
                                 st.info("No matching resumes found.")
                         else:
@@ -297,7 +290,7 @@ with tabs[0]:
                 st.success("Backend online ✔")
             else:
                 st.warning("Backend error")
-        except:
+        except Exception:
             st.warning("Backend offline")
 
 
@@ -344,44 +337,44 @@ with tabs[1]:
                 with c1:
                     st.write(f"**[{item['idx']}] {item['name']}** • {item['chars']} chars")
                 with c2:
+                    # NOTE: preview endpoint only works if you implemented it on backend;
+                    # if not, this button just won't do much.
                     if st.button("👁 View", key=f"view{item['idx']}"):
-                        prev = requests.get(f"{st.session_state.backend_url}/preview_resume", params={"idx": item["idx"]})
+                        prev = requests.get(
+                            f"{st.session_state.backend_url}/preview_resume",
+                            params={"idx": item["idx"]},
+                        )
                         if prev.status_code == 200:
-                            st.info(prev.json()["snippet"])
+                            st.info(prev.json().get("snippet", ""))
                 with c3:
                     if st.button("🗑 Delete", key=f"del{item['idx']}"):
-                        requests.post(f"{st.session_state.backend_url}/delete_resume", json={"idx": item["idx"]})
+                        requests.post(
+                            f"{st.session_state.backend_url}/delete_resume",
+                            json={"idx": item["idx"]},
+                        )
                         st.warning("Deleted. Refresh the page.")
         else:
             st.error("Couldn't load resumes.")
-    except:
+    except Exception:
         st.error("Backend not reachable.")
 
 
 # ============================================================
-# TAB 3: ANALYTICS
+# TAB 3: PROPOSALS
 # ============================================================
 with tabs[2]:
-    st.subheader("System Usage Analytics")
+    st.subheader("Client-Ready Engineer Proposals")
 
-    if os.path.exists(LOG_FILE):
-        with open(LOG_FILE, "r", encoding="utf-8") as f:
-            logs = json.load(f)
+    results = st.session_state.get("last_results", None)
 
-        st.metric("Total Searches", len(logs))
-
-        if logs:
-            avg = sum(x["duration_sec"] for x in logs) / len(logs)
-            st.metric("Avg Response Time", f"{avg:.2f}s")
-
-            by_day = Counter([x["timestamp"][:10] for x in logs])
-            st.bar_chart({"Searches": by_day})
-
-            st.write("Recent Activity:")
-            for row in logs[-10:][::-1]:
-                st.write(f"{row['timestamp']} — {row['num_results']} results")
+    if not results:
+        st.info("Run a search on the Home tab to generate proposals for the top 5 engineers.")
     else:
-        st.info("No analytics yet.")
+        for m in results:
+            st.markdown(f"### Proposal for {m['name']} (Rank #{m['rank']})")
+            proposal_text = m.get("proposal") or "No proposal text available for this candidate."
+            st.write(proposal_text)
+            st.markdown("---")
 
 
 # ============================================================
@@ -405,3 +398,4 @@ with tabs[3]:
             st.success("New background saved. Refresh page.")
         else:
             st.success("Settings updated.")
+

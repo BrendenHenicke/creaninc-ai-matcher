@@ -12,6 +12,8 @@ from PyPDF2 import PdfReader
 import docx
 import io
 import sqlite3, hashlib, json, time
+import sys
+import traceback
 
 # ========= Config =========
 EMBED_MODEL = "text-embedding-3-small"
@@ -46,7 +48,7 @@ CORS(app)
 # ========= OpenAI =========
 load_dotenv()
 
-# Remove proxy vars to prevent OpenAI client bugs
+# remove proxy vars to prevent OpenAI error
 for _k in ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "ALL_PROXY", "all_proxy", "NO_PROXY", "no_proxy"]:
     os.environ.pop(_k, None)
 
@@ -61,14 +63,17 @@ client = OpenAI(api_key=api_key)
 index = None
 resume_store = []  # list of dicts
 
+
 def _new_index():
     return faiss.IndexFlatL2(EMBED_DIM)
+
 
 def _save_index_and_store():
     faiss.write_index(index, INDEX_PATH)
     with open(STORE_PATH, "wb") as f:
         pickle.dump(resume_store, f)
-    logger.info(f"Saved FAISS index + store (count={len(resume_store)})")
+    logger.info(f"Saved FAISS index and resume store (count={len(resume_store)})")
+
 
 def _load_index_and_store():
     global index, resume_store
@@ -88,10 +93,12 @@ def _load_index_and_store():
         resume_store = []
         logger.warning("⚙️ No FAISS index found — starting empty.")
 
+
 def _embed_texts(texts):
     resp = client.embeddings.create(model=EMBED_MODEL, input=texts)
     vecs = [np.array(r.embedding, dtype="float32") for r in resp.data]
     return np.vstack(vecs)
+
 
 def _rebuild_full_index():
     global index
@@ -105,22 +112,27 @@ def _rebuild_full_index():
     index.add(vecs)
     _save_index_and_store()
 
+
 _load_index_and_store()
 
 # ========= SQLite Cache =========
 def get_db_connection():
     conn = sqlite3.connect(CACHE_DB)
-    conn.execute("""
+    conn.execute(
+        '''
         CREATE TABLE IF NOT EXISTS cache (
             key TEXT PRIMARY KEY,
             value TEXT,
             created_at REAL
         )
-    """)
+        '''
+    )
     return conn
+
 
 def compute_hash(text):
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
 
 def get_cached_value(key):
     try:
@@ -129,19 +141,26 @@ def get_cached_value(key):
         cur.execute("SELECT value FROM cache WHERE key = ?", (key,))
         row = cur.fetchone()
         conn.close()
+        if row:
+            logger.info(f"Cache hit: {key[:12]}...")
         return json.loads(row[0]) if row else None
-    except:
+    except Exception as e:
+        logger.error(f"Cache read error: {e}")
         return None
+
 
 def set_cached_value(key, value):
     try:
         conn = get_db_connection()
-        conn.execute("INSERT OR REPLACE INTO cache (key, value, created_at) VALUES (?, ?, ?)",
-                     (key, json.dumps(value), time.time()))
+        conn.execute(
+            "INSERT OR REPLACE INTO cache (key, value, created_at) VALUES (?, ?, ?)",
+            (key, json.dumps(value), time.time()),
+        )
         conn.commit()
         conn.close()
-    except:
-        pass
+    except Exception as e:
+        logger.error(f"Cache write error: {e}")
+
 
 # ========= File Extraction =========
 def extract_text_from_file_storage(file_storage):
@@ -163,36 +182,67 @@ def extract_text_from_file_storage(file_storage):
             file_storage.seek(0)
             return content
 
-        file_storage.seek(0)
-        return ""
-    except:
+        else:
+            file_storage.seek(0)
+            return ""
+    except Exception:
         try:
             file_storage.seek(0)
-        except:
+        except Exception:
             pass
         return ""
 
+
 # ========= FIT + GAP PROMPT BUILDER =========
 def build_explain_prompt(job_description, resume_name, resume_text, rank, total):
+    # 3 sections, each 3–4 sentences:
+    #   1) Why the engineer is a strong fit.
+    #   2) Why they are not an identical / perfect match.
+    #   3) Exactly what is missing to make them a perfect fit.
     safe_resume = resume_text or ""
-    short_resume = safe_resume[:3000] + ("..." if len(safe_resume) > 3000 else "")
+    if len(safe_resume) > 3000:
+        short_resume = safe_resume[:3000] + "..."
+    else:
+        short_resume = safe_resume
 
     return (
-        "You are an expert technical recruiter performing a FIT + GAP analysis.\n\n"
-        "Return your answer in this EXACT format (plain text only):\n\n"
-        f"Fit Summary: <Write 3–4 full sentences explaining why the candidate is a strong match. "
-        f"Explain their relevant skills, experience, domain knowledge, and why they ranked #{rank} "
-        f"out of {total}.>\n\n"
-        "Gap Analysis: <Write 3–4 full sentences stating EXACTLY what the candidate is missing. "
-        "List missing skills, missing technologies, certifications, experience, domain gaps, or keywords.>\n\n"
-        "Gap Severity: <Label the overall gap as Critical, Moderate, or Minor and explain why.>\n\n"
-        "Recommended Next Steps: <1–2 sentences telling the candidate what they must learn "
-        "or improve to fully match the job requirements.>\n\n"
+        "You are an expert technical recruiter performing a detailed FIT + GAP analysis.\n\n"
+        "Return your answer in this EXACT structure (plain text only, no bullet points):\n\n"
+        "Strong Fit Rationale: <Write 3–4 full sentences explaining why this candidate is a strong match. "
+        "Discuss their most relevant skills, experience, domain knowledge, and alignment with the job requirements, "
+        f"and briefly justify why they ranked #{rank} out of {total}.>\n\n"
+        "Not an Identical Fit: <Write 3–4 full sentences explaining why this candidate is NOT a perfect 1:1 match. "
+        "Describe areas where their background diverges from the job description, such as slightly different domains, "
+        "tools, scale, or environments.>\n\n"
+        "Missing to be Perfect Fit: <Write 3–4 full sentences describing exactly what is missing in this candidate's profile "
+        "that prevents them from being a perfect fit. Be concrete about missing technologies, certifications, years of "
+        "experience, domain exposure, or responsibilities that are present in the job description but not clearly supported "
+        "by the resume.>\n\n"
         f"JOB DESCRIPTION:\n{job_description}\n\n"
         f"RESUME ({resume_name}) EXCERPT:\n{short_resume}"
     )
 
-# ========= Reasoning Generator =========
+
+def build_proposal_prompt(job_description, resume_name, resume_text, rank, total):
+    # Purely positive, client-facing proposal paragraph (5–10 sentences) selling the candidate.
+    # No mention of gaps/weaknesses.
+    safe_resume = resume_text or ""
+    if len(safe_resume) > 3500:
+        short_resume = safe_resume[:3500] + "..."
+    else:
+        short_resume = safe_resume
+
+    return (
+        "You are preparing a professional, client-facing proposal for an engineering staffing firm.\n\n"
+        "Write a single, coherent paragraph of 5–10 sentences that explains why this candidate is an excellent choice "
+        "for the role. Focus ONLY on strengths: relevant skills, technologies, domain experience, impact, leadership, "
+        "communication, and alignment with the job description. Do NOT mention weaknesses, gaps, risks, or anything "
+        "the candidate is missing. Write in a confident, business-professional tone.\n\n"
+        f"JOB DESCRIPTION:\n{job_description}\n\n"
+        f"RESUME ({resume_name}) EXCERPT:\n{short_resume}"
+    )
+
+
 def get_reasoning_for_resume(prompt, cache_key):
     cached = get_cached_value(cache_key)
     if cached:
@@ -202,7 +252,7 @@ def get_reasoning_for_resume(prompt, cache_key):
             model="gpt-4o-mini",
             messages=[{"role": "user", "content": prompt}],
             max_tokens=320,
-            temperature=0.65
+            temperature=0.65,
         )
         reasoning = resp.choices[0].message.content.strip()
         set_cached_value(cache_key, reasoning)
@@ -211,14 +261,36 @@ def get_reasoning_for_resume(prompt, cache_key):
         logger.error(f"Explanation generation error: {e}")
         return "Explanation unavailable (generation error)."
 
+
+def get_proposal_for_resume(prompt, cache_key):
+    cached = get_cached_value(cache_key)
+    if cached:
+        return cached
+    try:
+        resp = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=400,
+            temperature=0.65,
+        )
+        text = resp.choices[0].message.content.strip()
+        set_cached_value(cache_key, text)
+        return text
+    except Exception as e:
+        logger.error(f"Proposal generation error: {e}")
+        return "Proposal unavailable (generation error)."
+
+
 # ========= Routes =========
 @app.route("/")
 def home():
     return "Backend OK."
 
+
 @app.route("/health")
 def health():
     return jsonify({"ok": True, "resume_count": len(resume_store)})
+
 
 @app.route("/search", methods=["POST"])
 def search():
@@ -236,32 +308,41 @@ def search():
             return jsonify({"matches": []}), 200
 
         k = min(5, index.ntotal)
-        distances, idxs = index.search(job_vec, k=k)
+        distances, indices = index.search(job_vec, k=k)
         scores = 1 / (1 + distances)
 
         results = []
-        for pos, idx in enumerate(idxs[0]):
+        for pos, idx in enumerate(indices[0]):
             entry = resume_store[idx]
             name = entry["name"]
             text = entry["text"]
             score = float(scores[0][pos])
 
+            # Fit + gap reasoning
             cache_key = compute_hash(job_description + name + str(pos))
             prompt = build_explain_prompt(job_description, name, text, pos + 1, k)
             reasoning = get_reasoning_for_resume(prompt, cache_key)
 
-            results.append({
-                "rank": pos + 1,
-                "name": name,
-                "score": score,
-                "reasoning": reasoning
-            })
+            # Positive-only proposal for client
+            proposal_key = compute_hash("proposal" + job_description + name + str(pos))
+            proposal_prompt = build_proposal_prompt(job_description, name, text, pos + 1, k)
+            proposal = get_proposal_for_resume(proposal_prompt, proposal_key)
+
+            results.append(
+                {
+                    "rank": pos + 1,
+                    "name": name,
+                    "score": score,
+                    "reasoning": reasoning,
+                    "proposal": proposal,
+                }
+            )
 
         return jsonify({"matches": results})
-
     except Exception as e:
         logger.exception("/search error")
         return jsonify({"error": str(e)}), 500
+
 
 @app.route("/upload_resume", methods=["POST"])
 def upload_resume():
@@ -276,7 +357,6 @@ def upload_resume():
             text = extract_text_from_file_storage(f)
             if not text.strip():
                 continue
-
             name = f.filename
             vec = _embed_texts([text])
             index.add(vec)
@@ -285,26 +365,29 @@ def upload_resume():
 
         _save_index_and_store()
         return jsonify({"ok": True, "added": added, "total": len(resume_store)})
-
     except Exception as e:
         logger.exception("/upload_resume error")
         return jsonify({"error": str(e)}), 500
 
+
 @app.route("/list_resumes")
 def list_resumes():
-    out = [{
-        "idx": i,
-        "name": r["name"],
-        "chars": len(r["text"])
-    } for i, r in enumerate(resume_store)]
+    out = [
+        {
+            "idx": i,
+            "name": r["name"],
+            "chars": len(r["text"]),
+        }
+        for i, r in enumerate(resume_store)
+    ]
     return jsonify({"resumes": out})
+
 
 @app.route("/delete_resume", methods=["POST"])
 def delete_resume():
     try:
         data = request.get_json(force=True) or {}
         idx = data.get("idx")
-
         if idx is None or idx < 0 or idx >= len(resume_store):
             return jsonify({"error": "Invalid idx"}), 400
 
@@ -312,9 +395,9 @@ def delete_resume():
         _rebuild_full_index()
 
         return jsonify({"ok": True, "removed": removed["name"], "remaining": len(resume_store)})
-
-    except:
+    except Exception:
         return jsonify({"error": "Delete failed"}), 500
+
 
 # ========= Startup =========
 if __name__ == "__main__":
