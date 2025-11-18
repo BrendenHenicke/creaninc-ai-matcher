@@ -50,16 +50,7 @@ CORS(app)
 load_dotenv()
 
 # remove proxy vars to prevent OpenAI error
-for _k in [
-    "HTTP_PROXY",
-    "HTTPS_PROXY",
-    "http_proxy",
-    "https_proxy",
-    "ALL_PROXY",
-    "all_proxy",
-    "NO_PROXY",
-    "no_proxy",
-]:
+for _k in ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "ALL_PROXY", "all_proxy", "NO_PROXY", "no_proxy"]:
     os.environ.pop(_k, None)
 
 api_key = os.getenv("OPENAI_API_KEY")
@@ -67,12 +58,11 @@ if not api_key:
     logger.error("Missing OPENAI_API_KEY in env variables.")
     raise ValueError("OPENAI_API_KEY missing.")
 
-# Add a slightly higher timeout for slower requests
-client = OpenAI(api_key=api_key, timeout=120.0)
+client = OpenAI(api_key=api_key)
 
 # ========= FAISS + Store =========
 index = None
-resume_store = []  # list of dicts: {"name": str, "text": str}
+resume_store = []  # list of dicts
 
 
 def _new_index():
@@ -130,13 +120,13 @@ _load_index_and_store()
 def get_db_connection():
     conn = sqlite3.connect(CACHE_DB)
     conn.execute(
-        """
+        '''
         CREATE TABLE IF NOT EXISTS cache (
             key TEXT PRIMARY KEY,
             value TEXT,
             created_at REAL
         )
-        """
+        '''
     )
     return conn
 
@@ -204,6 +194,28 @@ def extract_text_from_file_storage(file_storage):
         return ""
 
 
+# ========= PCA HELPER (2D) =========
+def _pca_2d(vecs: np.ndarray) -> np.ndarray:
+    """
+    vecs: (n_samples, EMBED_DIM)
+    returns coords: (n_samples, 2)
+    """
+    if vecs.shape[0] <= 1:
+        # not enough points, just return zeros
+        return np.zeros((vecs.shape[0], 2), dtype="float32")
+
+    X = vecs - vecs.mean(axis=0, keepdims=True)
+    try:
+        U, S, Vt = np.linalg.svd(X, full_matrices=False)
+        components = Vt[:2]  # (2, D)
+        coords = X @ components.T  # (n, 2)
+        return coords.astype("float32")
+    except Exception as e:
+        logger.error(f"PCA error: {e}")
+        # graceful fallback
+        return np.zeros((vecs.shape[0], 2), dtype="float32")
+
+
 # ========= FIT + GAP PROMPT BUILDER =========
 def build_explain_prompt(job_description, resume_name, resume_text, rank, total):
     safe_resume = (resume_text or "")
@@ -230,7 +242,6 @@ def build_explain_prompt(job_description, resume_name, resume_text, rank, total)
 
 
 def build_proposal_prompt(job_description, resume_name, resume_text, rank, total):
-    # Purely positive, client-facing proposal paragraph (5–10 sentences) selling the candidate.
     safe_resume = resume_text or ""
     short_resume = safe_resume[:3500] + "..." if len(safe_resume) > 3500 else safe_resume
 
@@ -303,17 +314,47 @@ def search():
         if not job_description.strip():
             return jsonify({"error": "Job description missing"}), 400
 
-        # Embed job description
+        # Embed job description for FAISS search
         emb = client.embeddings.create(model=EMBED_MODEL, input=job_description)
         job_vec = np.array(emb.data[0].embedding, dtype="float32").reshape(1, -1)
 
         if index.ntotal == 0:
-            return jsonify({"matches": []}), 200
+            return jsonify({"matches": [], "graph": None}), 200
 
         # FAISS search
         k = min(5, index.ntotal)
         distances, indices = index.search(job_vec, k=k)
         scores = 1 / (1 + distances)
+
+        # Collect candidates
+        top_indices = indices[0][:k]
+        candidate_entries = [resume_store[int(i)] for i in top_indices]
+
+        # ---- Compute PCA graph data (job + 5 candidates) ----
+        texts_for_pca = [job_description] + [c["text"] for c in candidate_entries]
+        vecs = _embed_texts(texts_for_pca)  # (k+1, D)
+
+        coords = _pca_2d(vecs)  # (k+1, 2)
+        graph_points = []
+
+        # index 0 = job description
+        graph_points.append({
+            "label": "Job Description",
+            "type": "job",
+            "x": float(coords[0, 0]),
+            "y": float(coords[0, 1]),
+        })
+
+        # 1..k = candidates in same order as top_indices
+        for i, idx_val in enumerate(top_indices):
+            entry = resume_store[int(idx_val)]
+            graph_points.append({
+                "label": entry["name"],
+                "type": "candidate",
+                "rank": int(i + 1),
+                "x": float(coords[i + 1, 0]),
+                "y": float(coords[i + 1, 1]),
+            })
 
         # -------- Parallel processing for GPT reasoning + proposals --------
         def process_candidate(pos, idx_value):
@@ -346,64 +387,15 @@ def search():
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = [
                 executor.submit(process_candidate, pos, idx_val)
-                for pos, idx_val in enumerate(indices[0][:k])
+                for pos, idx_val in enumerate(top_indices)
             ]
             for future in as_completed(futures):
                 res = future.result()
                 results[res["rank"] - 1] = res
 
-        return jsonify({"matches": results})
+        return jsonify({"matches": results, "graph": {"points": graph_points}})
     except Exception as e:
         logger.exception("/search error")
-        return jsonify({"error": str(e)}), 500
-
-
-@app.route("/graph_data", methods=["POST"])
-def graph_data():
-    """
-    Returns similarity scores for the top-k engineers for a given job description.
-    This is for the frontend graph (multi-line view) — no embeddings, just scores.
-    """
-    try:
-        data = request.get_json(force=True) or {}
-        job_description = data.get("job_description", "")
-
-        if not job_description.strip():
-            return jsonify({"error": "Job description missing"}), 400
-
-        # Embed job description
-        emb = client.embeddings.create(model=EMBED_MODEL, input=job_description)
-        job_vec = np.array(emb.data[0].embedding, dtype="float32").reshape(1, -1)
-
-        if index.ntotal == 0:
-            return jsonify({"points": []}), 200
-
-        k = min(5, index.ntotal)
-        distances, indices = index.search(job_vec, k=k)
-        scores = 1 / (1 + distances)
-
-        points = []
-        for pos, idx_val in enumerate(indices[0][:k]):
-            idx_int = int(idx_val)
-            entry = resume_store[idx_int]
-            name = entry["name"]
-            similarity = float(scores[0][pos])
-            points.append(
-                {
-                    "rank": pos + 1,
-                    "name": name,
-                    "similarity": similarity,
-                }
-            )
-
-        return jsonify(
-            {
-                "job_description_snippet": job_description[:300],
-                "points": points,
-            }
-        )
-    except Exception as e:
-        logger.exception("/graph_data error")
         return jsonify({"error": str(e)}), 500
 
 
@@ -457,9 +449,7 @@ def delete_resume():
         removed = resume_store.pop(idx)
         _rebuild_full_index()
 
-        return jsonify(
-            {"ok": True, "removed": removed["name"], "remaining": len(resume_store)}
-        )
+        return jsonify({"ok": True, "removed": removed["name"], "remaining": len(resume_store)})
     except Exception:
         return jsonify({"error": "Delete failed"}), 500
 
@@ -469,3 +459,4 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     print(f"🚀 Backend running on port {port}")
     app.run(host="0.0.0.0", port=port)
+
