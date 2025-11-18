@@ -13,6 +13,7 @@ import docx
 import io
 import sqlite3, hashlib, json, time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from sklearn.decomposition import PCA  # <-- NEW: for 2D projection
 import sys
 import traceback
 
@@ -50,7 +51,8 @@ CORS(app)
 load_dotenv()
 
 # remove proxy vars to prevent OpenAI error
-for _k in ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "ALL_PROXY", "all_proxy", "NO_PROXY", "no_proxy"]:
+for _k in ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy",
+           "ALL_PROXY", "all_proxy", "NO_PROXY", "no_proxy"]:
     os.environ.pop(_k, None)
 
 api_key = os.getenv("OPENAI_API_KEY")
@@ -62,7 +64,7 @@ client = OpenAI(api_key=api_key)
 
 # ========= FAISS + Store =========
 index = None
-resume_store = []  # list of dicts
+resume_store = []  # list of dicts: {"name": str, "text": str}
 
 
 def _new_index():
@@ -120,13 +122,13 @@ _load_index_and_store()
 def get_db_connection():
     conn = sqlite3.connect(CACHE_DB)
     conn.execute(
-        '''
+        """
         CREATE TABLE IF NOT EXISTS cache (
             key TEXT PRIMARY KEY,
             value TEXT,
             created_at REAL
         )
-        '''
+        """
     )
     return conn
 
@@ -194,28 +196,6 @@ def extract_text_from_file_storage(file_storage):
         return ""
 
 
-# ========= PCA HELPER (2D) =========
-def _pca_2d(vecs: np.ndarray) -> np.ndarray:
-    """
-    vecs: (n_samples, EMBED_DIM)
-    returns coords: (n_samples, 2)
-    """
-    if vecs.shape[0] <= 1:
-        # not enough points, just return zeros
-        return np.zeros((vecs.shape[0], 2), dtype="float32")
-
-    X = vecs - vecs.mean(axis=0, keepdims=True)
-    try:
-        U, S, Vt = np.linalg.svd(X, full_matrices=False)
-        components = Vt[:2]  # (2, D)
-        coords = X @ components.T  # (n, 2)
-        return coords.astype("float32")
-    except Exception as e:
-        logger.error(f"PCA error: {e}")
-        # graceful fallback
-        return np.zeros((vecs.shape[0], 2), dtype="float32")
-
-
 # ========= FIT + GAP PROMPT BUILDER =========
 def build_explain_prompt(job_description, resume_name, resume_text, rank, total):
     safe_resume = (resume_text or "")
@@ -242,6 +222,7 @@ def build_explain_prompt(job_description, resume_name, resume_text, rank, total)
 
 
 def build_proposal_prompt(job_description, resume_name, resume_text, rank, total):
+    # Purely positive, client-facing proposal paragraph (5–10 sentences) selling the candidate.
     safe_resume = resume_text or ""
     short_resume = safe_resume[:3500] + "..." if len(safe_resume) > 3500 else safe_resume
 
@@ -314,47 +295,30 @@ def search():
         if not job_description.strip():
             return jsonify({"error": "Job description missing"}), 400
 
-        # Embed job description for FAISS search
+        # Embed job description (for FAISS)
         emb = client.embeddings.create(model=EMBED_MODEL, input=job_description)
         job_vec = np.array(emb.data[0].embedding, dtype="float32").reshape(1, -1)
 
         if index.ntotal == 0:
-            return jsonify({"matches": [], "graph": None}), 200
+            return jsonify({"matches": []}), 200
 
         # FAISS search
         k = min(5, index.ntotal)
         distances, indices = index.search(job_vec, k=k)
         scores = 1 / (1 + distances)
 
-        # Collect candidates
-        top_indices = indices[0][:k]
-        candidate_entries = [resume_store[int(i)] for i in top_indices]
+        # ---- PCA-based 2D projection for JD + top K resumes ----
+        # Gather texts: [JD, resume1, resume2, ...]
+        top_indices = [int(idx_val) for idx_val in indices[0][:k]]
+        texts_for_pca = [job_description] + [resume_store[i]["text"] for i in top_indices]
 
-        # ---- Compute PCA graph data (job + 5 candidates) ----
-        texts_for_pca = [job_description] + [c["text"] for c in candidate_entries]
-        vecs = _embed_texts(texts_for_pca)  # (k+1, D)
+        vecs_for_pca = _embed_texts(texts_for_pca)  # shape: (k+1, 1536)
+        # PCA to 2D
+        pca = PCA(n_components=2)
+        reduced = pca.fit_transform(vecs_for_pca)  # (k+1, 2)
 
-        coords = _pca_2d(vecs)  # (k+1, 2)
-        graph_points = []
-
-        # index 0 = job description
-        graph_points.append({
-            "label": "Job Description",
-            "type": "job",
-            "x": float(coords[0, 0]),
-            "y": float(coords[0, 1]),
-        })
-
-        # 1..k = candidates in same order as top_indices
-        for i, idx_val in enumerate(top_indices):
-            entry = resume_store[int(idx_val)]
-            graph_points.append({
-                "label": entry["name"],
-                "type": "candidate",
-                "rank": int(i + 1),
-                "x": float(coords[i + 1, 0]),
-                "y": float(coords[i + 1, 1]),
-            })
+        jd_point = reduced[0].tolist()           # [x_jd, y_jd]
+        engineer_points = reduced[1:]            # (k, 2)
 
         # -------- Parallel processing for GPT reasoning + proposals --------
         def process_candidate(pos, idx_value):
@@ -374,26 +338,31 @@ def search():
             proposal_prompt = build_proposal_prompt(job_description, name, text, pos + 1, k)
             proposal = get_proposal_for_resume(proposal_prompt, proposal_key)
 
+            # Graph point (PCA 2D)
+            graph_xy = engineer_points[pos].tolist()
+
             return {
                 "rank": pos + 1,
                 "name": name,
                 "score": score,
                 "reasoning": reasoning,
                 "proposal": proposal,
+                "graph_xy": graph_xy,
             }
 
         results = [None] * k
-        max_workers = k  # up to 5
+        max_workers = k  # up to 5 in parallel
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = [
                 executor.submit(process_candidate, pos, idx_val)
-                for pos, idx_val in enumerate(top_indices)
+                for pos, idx_val in enumerate(indices[0][:k])
             ]
             for future in as_completed(futures):
                 res = future.result()
                 results[res["rank"] - 1] = res
 
-        return jsonify({"matches": results, "graph": {"points": graph_points}})
+        # Return matches + JD point for plotting
+        return jsonify({"matches": results, "jd_point": jd_point})
     except Exception as e:
         logger.exception("/search error")
         return jsonify({"error": str(e)}), 500
@@ -459,4 +428,3 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     print(f"🚀 Backend running on port {port}")
     app.run(host="0.0.0.0", port=port)
-

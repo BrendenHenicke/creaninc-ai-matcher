@@ -209,7 +209,6 @@ if "backend_url" not in st.session_state:
 st.title("🚀 Crean Inc. AI Resume Matcher")
 st.caption("Industry-grade AI talent identification — now in your browser.")
 
-
 tabs = st.tabs(["🏠 Home", "📂 Resume Manager", "📄 Proposals", "⚙️ Settings"])
 
 
@@ -257,19 +256,19 @@ with tabs[0]:
                         res = requests.post(
                             f"{st.session_state.backend_url}/search",
                             json={"job_description": job_description},
-                            timeout=60,
+                            timeout=180,
                         )
                         dt = time.time() - t0
 
                         if res.status_code == 200:
                             data = res.json()
                             matches = data.get("matches", [])
-                            graph = data.get("graph")
+                            jd_point = data.get("jd_point")
 
-                            # store results and graph for proposals tab
+                            # store results + JD point for proposals tab / graph
                             st.session_state.last_results = matches
                             st.session_state.last_job_description = job_description
-                            st.session_state.graph = graph
+                            st.session_state.last_jd_point = jd_point
 
                             if matches:
                                 st.success(f"Found {len(matches)} matching engineers (in {dt:.2f}s):")
@@ -340,7 +339,7 @@ with tabs[1]:
                 with c1:
                     st.write(f"**[{item['idx']}] {item['name']}** • {item['chars']} chars")
                 with c2:
-                    # NOTE: preview endpoint only works if you implemented it on backend
+                    # (Optional) preview endpoint
                     if st.button("👁 View", key=f"view{item['idx']}"):
                         prev = requests.get(
                             f"{st.session_state.backend_url}/preview_resume",
@@ -362,60 +361,90 @@ with tabs[1]:
 
 
 # ============================================================
-# TAB 3: PROPOSALS + GRAPH
+# TAB 3: PROPOSALS (with GRAPH)
 # ============================================================
 with tabs[2]:
     st.subheader("Client-Ready Engineer Proposals")
 
     results = st.session_state.get("last_results", None)
-    graph = st.session_state.get("graph", None)
+    jd_point = st.session_state.get("last_jd_point", None)
 
-    # ----- Graph: PCA 2D embedding space -----
-    st.markdown("#### Job vs Top Candidates in Embedding Space")
-
-    if graph and isinstance(graph, dict) and graph.get("points"):
-        points = graph["points"]
-        job_points = [p for p in points if p.get("type") == "job"]
-        cand_points = [p for p in points if p.get("type") == "candidate"]
-
-        if job_points and cand_points:
-            job_p = job_points[0]
-
-            fig, ax = plt.subplots()
-
-            # Plot job description point
-            ax.scatter(job_p["x"], job_p["y"], marker="*", s=180)
-            ax.text(job_p["x"], job_p["y"], "  Job Description", fontsize=9)
-
-            # Plot candidates and lines from job to each
-            for c in cand_points:
-                ax.scatter(c["x"], c["y"])
-                ax.plot([job_p["x"], c["x"]], [job_p["y"], c["y"]])
-                label = f"Rank {c.get('rank', '?')}: {c.get('label', 'Candidate')}"
-                ax.text(c["x"], c["y"], f"  {label}", fontsize=8)
-
-            ax.set_xlabel("Embedding PC1")
-            ax.set_ylabel("Embedding PC2")
-            ax.set_title("Job Description vs Top Candidate Embeddings (PCA 2D)")
-
-            st.pyplot(fig)
-        else:
-            st.info("Graph data incomplete. Run a new search to refresh the graph.")
-    else:
-        st.info("Graph will appear after you run a search on the Home tab.")
-
-    st.markdown("---")
-    st.markdown("#### Proposals for Selected Engineers")
-
-    # ----- Proposals -----
     if not results:
         st.info("Run a search on the Home tab to generate proposals for the top 5 engineers.")
     else:
+        # Proposals list
         for m in results:
             st.markdown(f"### Proposal for {m['name']} (Rank #{m['rank']})")
             proposal_text = m.get("proposal") or "No proposal text available for this candidate."
             st.write(proposal_text)
             st.markdown("---")
+
+        st.markdown("## Visual Fit Map (PCA Space)")
+
+        # Collect graph points from results
+        engineer_points = []
+        for m in results:
+            xy = m.get("graph_xy")
+            if xy and isinstance(xy, (list, tuple)) and len(xy) == 2:
+                engineer_points.append((m["name"], m["rank"], xy))
+
+        if jd_point and engineer_points:
+            fig, ax = plt.subplots(figsize=(7, 5))
+
+            # Make background dark to match theme
+            fig.patch.set_alpha(0.0)
+            ax.set_facecolor((0.02, 0.05, 0.12, 0.85))
+
+            # Job description line: from origin to scaled JD point
+            jd_x, jd_y = jd_point
+            scale = 1.2
+            line_x = [0, jd_x * scale]
+            line_y = [0, jd_y * scale]
+            ax.plot(
+                line_x,
+                line_y,
+                linestyle='-',
+                linewidth=2.5,
+                color="#00A0DF",
+                label="Job Description (ideal fit line)",
+            )
+
+            # Engineer points: dashed markers in different colors
+            # We'll just let matplotlib cycle colors; styling is dashed + marker.
+            for name, rank, (x, y) in engineer_points:
+                ax.plot(
+                    x,
+                    y,
+                    linestyle='--',
+                    marker='o',
+                    markersize=8,
+                    linewidth=1.5,
+                    label=f"{rank}. {name}",
+                )
+                # Label next to point
+                ax.text(
+                    x + 0.02,
+                    y + 0.02,
+                    f"{rank}. {name}",
+                    fontsize=8,
+                    color="white",
+                )
+
+            ax.set_title("Job Description vs. Top Engineer Fits (PCA View)", color="white")
+            ax.set_xlabel("Fit Dimension 1", color="white")
+            ax.set_ylabel("Fit Dimension 2", color="white")
+
+            ax.tick_params(colors="white")
+            ax.grid(True, color="white", alpha=0.15)
+
+            # Legend styling
+            legend = ax.legend(fontsize=8, facecolor="black", framealpha=0.6)
+            for text in legend.get_texts():
+                text.set_color("white")
+
+            st.pyplot(fig)
+        else:
+            st.info("Graph will appear after a successful search that returns PCA coordinates.")
 
 
 # ============================================================
@@ -439,4 +468,5 @@ with tabs[3]:
             st.success("New background saved. Refresh page.")
         else:
             st.success("Settings updated.")
+
 
