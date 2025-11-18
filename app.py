@@ -12,8 +12,6 @@ from PyPDF2 import PdfReader
 import docx
 import io
 import sqlite3, hashlib, json, time
-import sys
-import traceback
 
 # ========= Config =========
 EMBED_MODEL = "text-embedding-3-small"
@@ -48,7 +46,7 @@ CORS(app)
 # ========= OpenAI =========
 load_dotenv()
 
-# remove proxy vars to prevent OpenAI error
+# Remove proxy vars to prevent OpenAI client bugs
 for _k in ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "ALL_PROXY", "all_proxy", "NO_PROXY", "no_proxy"]:
     os.environ.pop(_k, None)
 
@@ -70,7 +68,7 @@ def _save_index_and_store():
     faiss.write_index(index, INDEX_PATH)
     with open(STORE_PATH, "wb") as f:
         pickle.dump(resume_store, f)
-    logger.info(f"Saved FAISS index and resume store (count={len(resume_store)})")
+    logger.info(f"Saved FAISS index + store (count={len(resume_store)})")
 
 def _load_index_and_store():
     global index, resume_store
@@ -131,8 +129,6 @@ def get_cached_value(key):
         cur.execute("SELECT value FROM cache WHERE key = ?", (key,))
         row = cur.fetchone()
         conn.close()
-        if row:
-            logger.info(f"Cache hit: {key[:12]}...")
         return json.loads(row[0]) if row else None
     except:
         return None
@@ -140,9 +136,8 @@ def get_cached_value(key):
 def set_cached_value(key, value):
     try:
         conn = get_db_connection()
-        conn.execute(
-            "INSERT OR REPLACE INTO cache (key, value, created_at) VALUES (?, ?, ?)",
-            (key, json.dumps(value), time.time()))
+        conn.execute("INSERT OR REPLACE INTO cache (key, value, created_at) VALUES (?, ?, ?)",
+                     (key, json.dumps(value), time.time()))
         conn.commit()
         conn.close()
     except:
@@ -168,9 +163,8 @@ def extract_text_from_file_storage(file_storage):
             file_storage.seek(0)
             return content
 
-        else:
-            file_storage.seek(0)
-            return ""
+        file_storage.seek(0)
+        return ""
     except:
         try:
             file_storage.seek(0)
@@ -180,36 +174,25 @@ def extract_text_from_file_storage(file_storage):
 
 # ========= FIT + GAP PROMPT BUILDER =========
 def build_explain_prompt(job_description, resume_name, resume_text, rank, total):
-    # Be safe if resume_text is None or empty, and cap length at ~3000 chars
-    safe_resume = (resume_text or "")
-    if len(safe_resume) > 3000:
-        short_resume = safe_resume[:3000] + "..."
-    else:
-        short_resume = safe_resume
+    safe_resume = resume_text or ""
+    short_resume = safe_resume[:3000] + ("..." if len(safe_resume) > 3000 else "")
 
     return (
         "You are an expert technical recruiter performing a FIT + GAP analysis.\n\n"
         "Return your answer in this EXACT format (plain text only):\n\n"
-        "Fit Summary: <Write 3–4 full sentences explaining why the candidate is a good match. "
-        "Discuss their strongest relevant skills, relevant experience, alignment with job requirements, "
-        f"and why they ranked #{rank} out of {total}.>\n\n"
-        "Gap Analysis: <Write 3–4 full sentences describing EXACTLY what the candidate is missing. "
-        "Identify missing skills, domain gaps, certifications, years of experience, missing technologies, "
-        "or missing keywords compared to the job description.>\n\n"
-        "Gap Severity: <Label the gap severity as Critical, Moderate, or Minor and explain the reason.>\n\n"
-        "Recommended Next Steps: <1–2 sentences explaining what the candidate should learn or improve to "
-        "fully meet the job requirements.>\n\n"
+        f"Fit Summary: <Write 3–4 full sentences explaining why the candidate is a strong match. "
+        f"Explain their relevant skills, experience, domain knowledge, and why they ranked #{rank} "
+        f"out of {total}.>\n\n"
+        "Gap Analysis: <Write 3–4 full sentences stating EXACTLY what the candidate is missing. "
+        "List missing skills, missing technologies, certifications, experience, domain gaps, or keywords.>\n\n"
+        "Gap Severity: <Label the overall gap as Critical, Moderate, or Minor and explain why.>\n\n"
+        "Recommended Next Steps: <1–2 sentences telling the candidate what they must learn "
+        "or improve to fully match the job requirements.>\n\n"
         f"JOB DESCRIPTION:\n{job_description}\n\n"
         f"RESUME ({resume_name}) EXCERPT:\n{short_resume}"
     )
 
-def get_reasoning_for_resume(prompt, cache_key):
-    cached = get_cached_value(cache_key)
-    if cached:
-        return cached
-    try:
-    )
-
+# ========= Reasoning Generator =========
 def get_reasoning_for_resume(prompt, cache_key):
     cached = get_cached_value(cache_key)
     if cached:
@@ -253,11 +236,11 @@ def search():
             return jsonify({"matches": []}), 200
 
         k = min(5, index.ntotal)
-        distances, indices = index.search(job_vec, k=k)
+        distances, idxs = index.search(job_vec, k=k)
         scores = 1 / (1 + distances)
 
         results = []
-        for pos, idx in enumerate(indices[0]):
+        for pos, idx in enumerate(idxs[0]):
             entry = resume_store[idx]
             name = entry["name"]
             text = entry["text"]
@@ -275,6 +258,7 @@ def search():
             })
 
         return jsonify({"matches": results})
+
     except Exception as e:
         logger.exception("/search error")
         return jsonify({"error": str(e)}), 500
@@ -292,6 +276,7 @@ def upload_resume():
             text = extract_text_from_file_storage(f)
             if not text.strip():
                 continue
+
             name = f.filename
             vec = _embed_texts([text])
             index.add(vec)
@@ -300,6 +285,7 @@ def upload_resume():
 
         _save_index_and_store()
         return jsonify({"ok": True, "added": added, "total": len(resume_store)})
+
     except Exception as e:
         logger.exception("/upload_resume error")
         return jsonify({"error": str(e)}), 500
@@ -318,6 +304,7 @@ def delete_resume():
     try:
         data = request.get_json(force=True) or {}
         idx = data.get("idx")
+
         if idx is None or idx < 0 or idx >= len(resume_store):
             return jsonify({"error": "Invalid idx"}), 400
 
@@ -325,7 +312,8 @@ def delete_resume():
         _rebuild_full_index()
 
         return jsonify({"ok": True, "removed": removed["name"], "remaining": len(resume_store)})
-    except Exception:
+
+    except:
         return jsonify({"error": "Delete failed"}), 500
 
 # ========= Startup =========
@@ -333,4 +321,3 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     print(f"🚀 Backend running on port {port}")
     app.run(host="0.0.0.0", port=port)
-
