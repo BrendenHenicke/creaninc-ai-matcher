@@ -195,33 +195,30 @@ def extract_text_from_file_storage(file_storage):
 
 # ========= FIT + GAP PROMPT BUILDER =========
 def build_explain_prompt(job_description, resume_name, resume_text, rank, total):
-    # 3 sections, each 3–4 sentences:
-    #   1) Why the engineer is a strong fit.
-    #   2) Why they are not an identical / perfect match.
-    #   3) Exactly what is missing to make them a perfect fit.
-    safe_resume = resume_text or ""
-    if len(safe_resume) > 3000:
-        short_resume = safe_resume[:3000] + "..."
-    else:
-        short_resume = safe_resume
+    safe_resume = (resume_text or "")
+    short_resume = safe_resume[:3000] + "..." if len(safe_resume) > 3000 else safe_resume
 
     return (
-        "You are an expert technical recruiter performing a detailed FIT + GAP analysis.\n\n"
-        "Return your answer in this EXACT structure (plain text only, no bullet points):\n\n"
-        "Strong Fit Rationale: <Write 3–4 full sentences explaining why this candidate is a strong match. "
-        "Discuss their most relevant skills, experience, domain knowledge, and alignment with the job requirements, "
-        f"and briefly justify why they ranked #{rank} out of {total}.>\n\n"
-        "Not an Identical Fit: <Write 3–4 full sentences explaining why this candidate is NOT a perfect 1:1 match. "
-        "Describe areas where their background diverges from the job description, such as slightly different domains, "
-        "tools, scale, or environments.>\n\n"
-        "Missing to be Perfect Fit: <Write 3–4 full sentences describing exactly what is missing in this candidate's profile "
-        "that prevents them from being a perfect fit. Be concrete about missing technologies, certifications, years of "
-        "experience, domain exposure, or responsibilities that are present in the job description but not clearly supported "
-        "by the resume.>\n\n"
+        "You are an expert technical recruiter performing a structured FIT + GAP analysis.\n\n"
+        "Your output MUST contain **three separate paragraphs**, each 3–4 full sentences, "
+        "with a blank line between paragraphs. Use plain text only. Follow this structure:\n\n"
+
+        "Paragraph 1 — Fit Summary:\n"
+        "Explain ONLY the positive reasons this candidate is a strong match. Highlight skills, "
+        "experience, achievements, and alignment with the job description. Do NOT mention gaps or weaknesses here.\n\n"
+
+        "Paragraph 2 — Why They Are Not a Perfect Match:\n"
+        "Explain what prevents this candidate from being an EXACT match. Describe partial mismatches, "
+        "limitations, weaker areas, or missing context that affect perfect alignment.\n\n"
+
+        "Paragraph 3 — Missing Skills or Required Experience:\n"
+        "List the concrete skills, certifications, technologies, domain experience, or keywords that "
+        "are *absent from the resume* but required or highly valuable for the job.\n\n"
+
+        f"NOTE: This candidate ranked #{rank} out of {total}. Do not mention other candidates.\n\n"
         f"JOB DESCRIPTION:\n{job_description}\n\n"
         f"RESUME ({resume_name}) EXCERPT:\n{short_resume}"
     )
-
 
 def build_proposal_prompt(job_description, resume_name, resume_text, rank, total):
     # Purely positive, client-facing proposal paragraph (5–10 sentences) selling the candidate.
