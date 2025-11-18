@@ -12,6 +12,7 @@ from PyPDF2 import PdfReader
 import docx
 import io
 import sqlite3, hashlib, json, time
+from concurrent.futures import ThreadPoolExecutor, as_completed  # <-- NEW
 import sys
 import traceback
 
@@ -200,36 +201,28 @@ def build_explain_prompt(job_description, resume_name, resume_text, rank, total)
 
     return (
         "You are an expert technical recruiter performing a structured FIT + GAP analysis.\n\n"
-        "You MUST return your answer in EXACTLY **three clearly separated paragraphs**, "
+        "You MUST return your answer in EXACTLY three clearly separated paragraphs, "
         "each beginning with the labels below. Include a blank line between paragraphs.\n\n"
-
         "1. Positive Fit:\n"
         "<Write 3–4 full sentences explaining why the candidate is a strong match. "
         "Focus ONLY on strengths, relevant skills, relevant experience, and why they ranked "
         f"#{rank} out of {total}.>\n\n"
-
         "2. Why Not a Perfect Match:\n"
         "<Write 3–4 sentences explaining WHY this candidate is not a 100% perfect match. "
         "Explain which requirements they partially meet or only indirectly meet.>\n\n"
-
         "3. Missing Skills:\n"
         "<Write 3–4 sentences listing SPECIFIC missing skills, keywords, certifications, "
         "technologies, tools, or experience gaps that prevent them from being an ideal fit.>\n\n"
-
         "Do NOT combine sections. Do NOT remove the section labels. Do NOT use bullet points.\n\n"
-
         f"JOB DESCRIPTION:\n{job_description}\n\n"
         f"RESUME ({resume_name}) EXCERPT:\n{short_resume}"
     )
 
+
 def build_proposal_prompt(job_description, resume_name, resume_text, rank, total):
     # Purely positive, client-facing proposal paragraph (5–10 sentences) selling the candidate.
-    # No mention of gaps/weaknesses.
     safe_resume = resume_text or ""
-    if len(safe_resume) > 3500:
-        short_resume = safe_resume[:3500] + "..."
-    else:
-        short_resume = safe_resume
+    short_resume = safe_resume[:3500] + "..." if len(safe_resume) > 3500 else safe_resume
 
     return (
         "You are preparing a professional, client-facing proposal for an engineering staffing firm.\n\n"
@@ -300,19 +293,22 @@ def search():
         if not job_description.strip():
             return jsonify({"error": "Job description missing"}), 400
 
+        # Embed job description
         emb = client.embeddings.create(model=EMBED_MODEL, input=job_description)
         job_vec = np.array(emb.data[0].embedding, dtype="float32").reshape(1, -1)
 
         if index.ntotal == 0:
             return jsonify({"matches": []}), 200
 
+        # FAISS search
         k = min(5, index.ntotal)
         distances, indices = index.search(job_vec, k=k)
         scores = 1 / (1 + distances)
 
-        results = []
-        for pos, idx in enumerate(indices[0]):
-            entry = resume_store[idx]
+        # -------- Parallel processing for GPT reasoning + proposals --------
+        def process_candidate(pos, idx_value):
+            idx_int = int(idx_value)
+            entry = resume_store[idx_int]
             name = entry["name"]
             text = entry["text"]
             score = float(scores[0][pos])
@@ -322,20 +318,29 @@ def search():
             prompt = build_explain_prompt(job_description, name, text, pos + 1, k)
             reasoning = get_reasoning_for_resume(prompt, cache_key)
 
-            # Positive-only proposal for client
+            # Positive-only proposal
             proposal_key = compute_hash("proposal" + job_description + name + str(pos))
             proposal_prompt = build_proposal_prompt(job_description, name, text, pos + 1, k)
             proposal = get_proposal_for_resume(proposal_prompt, proposal_key)
 
-            results.append(
-                {
-                    "rank": pos + 1,
-                    "name": name,
-                    "score": score,
-                    "reasoning": reasoning,
-                    "proposal": proposal,
-                }
-            )
+            return {
+                "rank": pos + 1,
+                "name": name,
+                "score": score,
+                "reasoning": reasoning,
+                "proposal": proposal,
+            }
+
+        results = [None] * k
+        max_workers = k  # up to 5
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = [
+                executor.submit(process_candidate, pos, idx_val)
+                for pos, idx_val in enumerate(indices[0][:k])
+            ]
+            for future in as_completed(futures):
+                res = future.result()
+                results[res["rank"] - 1] = res
 
         return jsonify({"matches": results})
     except Exception as e:
@@ -403,3 +408,4 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     print(f"🚀 Backend running on port {port}")
     app.run(host="0.0.0.0", port=port)
+
