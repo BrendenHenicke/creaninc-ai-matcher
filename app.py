@@ -20,7 +20,6 @@ EMBED_MODEL = "text-embedding-3-small"
 EMBED_DIM = 1536
 
 # ======== Persistent Storage Paths ========
-# Use /data if available (Render persistent disk mount)
 PERSIST_PATH = "/data" if os.path.exists("/data") else "."
 INDEX_PATH = os.path.join(PERSIST_PATH, "resume_index.faiss")
 STORE_PATH = os.path.join(PERSIST_PATH, "resume_store.pkl")
@@ -49,20 +48,20 @@ CORS(app)
 # ========= OpenAI =========
 load_dotenv()
 
-# Nuke proxy env vars to avoid "proxies" kwarg bug
+# remove proxy vars to prevent OpenAI error
 for _k in ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "ALL_PROXY", "all_proxy", "NO_PROXY", "no_proxy"]:
     os.environ.pop(_k, None)
 
 api_key = os.getenv("OPENAI_API_KEY")
 if not api_key:
-    logger.error("Missing OPENAI_API_KEY in environment variables.")
-    raise ValueError("OPENAI_API_KEY is missing. Set it in environment variables.")
+    logger.error("Missing OPENAI_API_KEY in env variables.")
+    raise ValueError("OPENAI_API_KEY missing.")
 
 client = OpenAI(api_key=api_key)
 
 # ========= FAISS + Store =========
 index = None
-resume_store = []  # list[dict]: {"name": str, "text": str}
+resume_store = []  # list of dicts
 
 def _new_index():
     return faiss.IndexFlatL2(EMBED_DIM)
@@ -80,18 +79,16 @@ def _load_index_and_store():
             index = faiss.read_index(INDEX_PATH)
             with open(STORE_PATH, "rb") as f:
                 resume_store = pickle.load(f)
-            logger.info(f"✅ Loaded FAISS index with {len(resume_store)} resumes from disk.")
-            print(f"✅ Loaded FAISS index with {len(resume_store)} resumes from {PERSIST_PATH}")
+            logger.info(f"✅ Loaded FAISS index with {len(resume_store)} resumes.")
         except Exception as e:
-            logger.warning(f"⚠️ Corrupted FAISS store detected, rebuilding from scratch: {e}")
+            logger.warning(f"⚠️ Corrupted FAISS store. Rebuilding: {e}")
             index = _new_index()
             resume_store = []
             _save_index_and_store()
     else:
-        logger.warning("⚙️ No FAISS index found — starting empty.")
-        print("⚙️ No FAISS index found — creating a new one.")
         index = _new_index()
         resume_store = []
+        logger.warning("⚙️ No FAISS index found — starting empty.")
 
 def _embed_texts(texts):
     resp = client.embeddings.create(model=EMBED_MODEL, input=texts)
@@ -104,12 +101,11 @@ def _rebuild_full_index():
         index = _new_index()
         _save_index_and_store()
         return
-    texts = [r.get("text", "") for r in resume_store]
+    texts = [r["text"] for r in resume_store]
     vecs = _embed_texts(texts)
     index = _new_index()
     index.add(vecs)
     _save_index_and_store()
-    logger.info("Rebuilt FAISS index from resume_store (size=%d).", len(resume_store))
 
 _load_index_and_store()
 
@@ -136,22 +132,21 @@ def get_cached_value(key):
         row = cur.fetchone()
         conn.close()
         if row:
-            logger.info(f"Cache hit for key: {key[:12]}...")
+            logger.info(f"Cache hit: {key[:12]}...")
         return json.loads(row[0]) if row else None
-    except Exception as e:
-        logger.error(f"Cache read error: {e}")
+    except:
         return None
 
 def set_cached_value(key, value):
     try:
         conn = get_db_connection()
-        conn.execute("INSERT OR REPLACE INTO cache (key, value, created_at) VALUES (?, ?, ?)",
-                     (key, json.dumps(value), time.time()))
+        conn.execute(
+            "INSERT OR REPLACE INTO cache (key, value, created_at) VALUES (?, ?, ?)",
+            (key, json.dumps(value), time.time()))
         conn.commit()
         conn.close()
-        logger.info(f"Cache write success for key: {key[:12]}...")
-    except Exception as e:
-        logger.error(f"Cache write error: {e}")
+    except:
+        pass
 
 # ========= File Extraction =========
 def extract_text_from_file_storage(file_storage):
@@ -161,37 +156,58 @@ def extract_text_from_file_storage(file_storage):
             reader = PdfReader(io.BytesIO(file_storage.read()))
             file_storage.seek(0)
             return "".join(page.extract_text() or "" for page in reader.pages)
+
         elif filename.endswith(".docx"):
             tmp = io.BytesIO(file_storage.read())
             file_storage.seek(0)
             doc = docx.Document(tmp)
             return "\n".join(p.text for p in doc.paragraphs)
+
         elif filename.endswith(".txt"):
             content = file_storage.read().decode("utf-8", errors="ignore")
             file_storage.seek(0)
             return content
+
         else:
             file_storage.seek(0)
             return ""
-    except Exception as e:
-        logger.warning(f"File read error: {e}")
+    except:
         try:
             file_storage.seek(0)
         except:
             pass
         return ""
 
-# ========= Prompt Builder =========
+# ========= FIT + GAP PROMPT BUILDER =========
 def build_explain_prompt(job_description, resume_name, resume_text, rank, total):
-    short_resume = (resume_text[:3000] + "...") if resume_text and len(resume_text) > 3000 else (resume_text or "")
+    # Be safe if resume_text is None or empty, and cap length at ~3000 chars
+    safe_resume = (resume_text or "")
+    if len(safe_resume) > 3000:
+        short_resume = safe_resume[:3000] + "..."
+    else:
+        short_resume = safe_resume
+
     return (
-        f"You are an experienced technical recruiter and hiring manager. "
-        f"In 3–5 conversational sentences, explain why this candidate is a good fit "
-        f"for the job and why they ranked #{rank} out of {total}. "
-        f"Be concise, specific to the candidate's highlights, and compare briefly to others.\n\n"
+        "You are an expert technical recruiter performing a FIT + GAP analysis.\n\n"
+        "Return your answer in this EXACT format (plain text only):\n\n"
+        "Fit Summary: <Write 3–4 full sentences explaining why the candidate is a good match. "
+        "Discuss their strongest relevant skills, relevant experience, alignment with job requirements, "
+        f"and why they ranked #{rank} out of {total}.>\n\n"
+        "Gap Analysis: <Write 3–4 full sentences describing EXACTLY what the candidate is missing. "
+        "Identify missing skills, domain gaps, certifications, years of experience, missing technologies, "
+        "or missing keywords compared to the job description.>\n\n"
+        "Gap Severity: <Label the gap severity as Critical, Moderate, or Minor and explain the reason.>\n\n"
+        "Recommended Next Steps: <1–2 sentences explaining what the candidate should learn or improve to "
+        "fully meet the job requirements.>\n\n"
         f"JOB DESCRIPTION:\n{job_description}\n\n"
-        f"RESUME ({resume_name}) SUMMARY / EXCERPT:\n{short_resume}\n\n"
-        f"Return plain text (3–5 sentences)."
+        f"RESUME ({resume_name}) EXCERPT:\n{short_resume}"
+    )
+
+def get_reasoning_for_resume(prompt, cache_key):
+    cached = get_cached_value(cache_key)
+    if cached:
+        return cached
+    try:
     )
 
 def get_reasoning_for_resume(prompt, cache_key):
@@ -202,20 +218,20 @@ def get_reasoning_for_resume(prompt, cache_key):
         resp = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=150,
-            temperature=0.7
+            max_tokens=320,
+            temperature=0.65
         )
         reasoning = resp.choices[0].message.content.strip()
         set_cached_value(cache_key, reasoning)
         return reasoning
     except Exception as e:
         logger.error(f"Explanation generation error: {e}")
-        return "Explanation unavailable (error generating reasoning)."
+        return "Explanation unavailable (generation error)."
 
 # ========= Routes =========
 @app.route("/")
 def home():
-    return "Flask backend running."
+    return "Backend OK."
 
 @app.route("/health")
 def health():
@@ -224,8 +240,9 @@ def health():
 @app.route("/search", methods=["POST"])
 def search():
     try:
-        data = request.get_json(force=True, silent=True) or {}
+        data = request.get_json(force=True) or {}
         job_description = data.get("job_description", "")
+
         if not job_description.strip():
             return jsonify({"error": "Job description missing"}), 400
 
@@ -233,25 +250,25 @@ def search():
         job_vec = np.array(emb.data[0].embedding, dtype="float32").reshape(1, -1)
 
         if index.ntotal == 0:
-            return jsonify({"matches": [], "ranking_summary": "Resume database is empty."}), 200
+            return jsonify({"matches": []}), 200
 
         k = min(5, index.ntotal)
         distances, indices = index.search(job_vec, k=k)
         scores = 1 / (1 + distances)
 
         results = []
-        for i, idx in enumerate(indices[0][:k]):
-            if idx < 0 or idx >= len(resume_store):
-                continue
+        for pos, idx in enumerate(indices[0]):
             entry = resume_store[idx]
-            name = entry.get("name") or f"Resume {idx}"
-            resume_text = entry.get("text") or ""
-            score = float(scores[0][i])
-            reasoning_key = compute_hash(job_description + name + str(i))
-            prompt = build_explain_prompt(job_description, name, resume_text, i + 1, k)
-            reasoning = get_reasoning_for_resume(prompt, reasoning_key)
+            name = entry["name"]
+            text = entry["text"]
+            score = float(scores[0][pos])
+
+            cache_key = compute_hash(job_description + name + str(pos))
+            prompt = build_explain_prompt(job_description, name, text, pos + 1, k)
+            reasoning = get_reasoning_for_resume(prompt, cache_key)
+
             results.append({
-                "rank": i + 1,
+                "rank": pos + 1,
                 "name": name,
                 "score": score,
                 "reasoning": reasoning
@@ -259,7 +276,7 @@ def search():
 
         return jsonify({"matches": results})
     except Exception as e:
-        logger.exception(f"/search error: {e}")
+        logger.exception("/search error")
         return jsonify({"error": str(e)}), 500
 
 @app.route("/upload_resume", methods=["POST"])
@@ -270,44 +287,50 @@ def upload_resume():
 
         files = request.files.getlist("files")
         added = 0
+
         for f in files:
             text = extract_text_from_file_storage(f)
-            name = f.filename or f"Resume_{int(time.time())}"
             if not text.strip():
                 continue
+            name = f.filename
             vec = _embed_texts([text])
             index.add(vec)
             resume_store.append({"name": name, "text": text})
             added += 1
 
         _save_index_and_store()
-        logger.info(f"Uploaded {added} resumes (total={len(resume_store)})")
         return jsonify({"ok": True, "added": added, "total": len(resume_store)})
     except Exception as e:
-        logger.exception(f"/upload_resume error: {e}")
+        logger.exception("/upload_resume error")
         return jsonify({"error": str(e)}), 500
 
-@app.route("/list_resumes", methods=["GET"])
+@app.route("/list_resumes")
 def list_resumes():
-    out = [{"idx": i, "name": r.get("name", f"Resume {i}"), "chars": len(r.get("text", ""))} for i, r in enumerate(resume_store)]
-    return jsonify({"resumes": out, "count": len(out)})
+    out = [{
+        "idx": i,
+        "name": r["name"],
+        "chars": len(r["text"])
+    } for i, r in enumerate(resume_store)]
+    return jsonify({"resumes": out})
 
 @app.route("/delete_resume", methods=["POST"])
 def delete_resume():
     try:
-        data = request.get_json(force=True, silent=True) or {}
+        data = request.get_json(force=True) or {}
         idx = data.get("idx")
-        if idx is None or not (0 <= idx < len(resume_store)):
+        if idx is None or idx < 0 or idx >= len(resume_store):
             return jsonify({"error": "Invalid idx"}), 400
+
         removed = resume_store.pop(idx)
         _rebuild_full_index()
-        return jsonify({"ok": True, "removed": removed.get("name"), "remaining": len(resume_store)})
-    except Exception as e:
-        logger.exception(f"/delete_resume error: {e}")
-        return jsonify({"error": str(e)}), 500
 
-# ========= Main =========
+        return jsonify({"ok": True, "removed": removed["name"], "remaining": len(resume_store)})
+    except Exception:
+        return jsonify({"error": "Delete failed"}), 500
+
+# ========= Startup =========
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     print(f"🚀 Backend running on port {port}")
     app.run(host="0.0.0.0", port=port)
+
