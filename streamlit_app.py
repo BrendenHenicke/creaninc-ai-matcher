@@ -256,25 +256,23 @@ with tabs[0]:
                         res = requests.post(
                             f"{st.session_state.backend_url}/search",
                             json={"job_description": job_description},
-                            timeout=180,
+                            timeout=60,
                         )
                         dt = time.time() - t0
 
                         if res.status_code == 200:
                             data = res.json()
                             matches = data.get("matches", [])
-                            jd_point = data.get("jd_point")
 
-                            # store results + JD point for proposals tab / graph
+                            # store results for proposals tab + graph
                             st.session_state.last_results = matches
                             st.session_state.last_job_description = job_description
-                            st.session_state.last_jd_point = jd_point
 
                             if matches:
                                 st.success(f"Found {len(matches)} matching engineers (in {dt:.2f}s):")
                                 for m in matches:
                                     st.markdown(f"### ⭐ {m['name']}")
-                                    st.write(f"Rank: {m['rank']} • Score: {m['score']:.2f}")
+                                    st.write(f"Rank: {m['rank']} • Score: {m['score']:.3f}")
                                     st.write("**Fit + Gap Analysis:**")
                                     st.write(m["reasoning"])
                             else:
@@ -339,7 +337,7 @@ with tabs[1]:
                 with c1:
                     st.write(f"**[{item['idx']}] {item['name']}** • {item['chars']} chars")
                 with c2:
-                    # (Optional) preview endpoint
+                    # NOTE: preview endpoint only works if implemented in backend
                     if st.button("👁 View", key=f"view{item['idx']}"):
                         prev = requests.get(
                             f"{st.session_state.backend_url}/preview_resume",
@@ -361,90 +359,104 @@ with tabs[1]:
 
 
 # ============================================================
-# TAB 3: PROPOSALS (with GRAPH)
+# TAB 3: PROPOSALS + GRAPH
 # ============================================================
 with tabs[2]:
     st.subheader("Client-Ready Engineer Proposals")
 
     results = st.session_state.get("last_results", None)
-    jd_point = st.session_state.get("last_jd_point", None)
 
     if not results:
-        st.info("Run a search on the Home tab to generate proposals for the top 5 engineers.")
+        st.info("Run a search on the Home tab to generate proposals and visualization.")
     else:
-        # Proposals list
+        # ---------- Proposals ----------
         for m in results:
             st.markdown(f"### Proposal for {m['name']} (Rank #{m['rank']})")
             proposal_text = m.get("proposal") or "No proposal text available for this candidate."
             st.write(proposal_text)
             st.markdown("---")
 
-        st.markdown("## Visual Fit Map (PCA Space)")
+        st.markdown("## Visual Match Overview")
 
-        # Collect graph points from results
-        engineer_points = []
-        for m in results:
-            xy = m.get("graph_xy")
-            if xy and isinstance(xy, (list, tuple)) and len(xy) == 2:
-                engineer_points.append((m["name"], m["rank"], xy))
-
-        if jd_point and engineer_points:
+        # ---------- Graph: Job Description vs Engineer Lines ----------
+        try:
+            # Set up figure
             fig, ax = plt.subplots(figsize=(7, 5))
 
-            # Make background dark to match theme
-            fig.patch.set_alpha(0.0)
-            ax.set_facecolor((0.02, 0.05, 0.12, 0.85))
+            max_x = 20
+            max_y = 20
+            xs = list(range(0, max_x + 1))
 
-            # Job description line: from origin to scaled JD point
-            jd_x, jd_y = jd_point
-            scale = 1.2
-            line_x = [0, jd_x * scale]
-            line_y = [0, jd_y * scale]
-            ax.plot(
-                line_x,
-                line_y,
-                linestyle='-',
-                linewidth=2.5,
-                color="#00A0DF",
-                label="Job Description (ideal fit line)",
-            )
+            # Job description ideal line y = x (solid)
+            ys_job = xs  # y = x
+            ax.plot(xs, ys_job, linestyle="-", linewidth=2.2, color="#00FFFF", label="Job Description (Ideal Match)")
 
-            # Engineer points: dashed markers in different colors
-            # We'll just let matplotlib cycle colors; styling is dashed + marker.
-            for name, rank, (x, y) in engineer_points:
+            # Color cycle for engineers
+            engineer_colors = ["#22C55E", "#F97316", "#E11D48", "#8B5CF6", "#38BDF8"]
+
+            # Jitter offsets for end labels so they don't overlap
+            label_offsets = [-0.6, 0.0, 0.6, 1.1, -1.1]
+
+            for i, m in enumerate(results):
+                score = m.get("score", 0.0)
+                name = m.get("name", f"Engineer {i+1}")
+                color = engineer_colors[i % len(engineer_colors)]
+
+                # Engineer line: y = score * x
+                ys_engineer = [score * x for x in xs]
+
+                # Clip y to max_y to stay in frame
+                ys_engineer = [min(y, max_y) for y in ys_engineer]
+
                 ax.plot(
-                    x,
-                    y,
-                    linestyle='--',
-                    marker='o',
-                    markersize=8,
-                    linewidth=1.5,
-                    label=f"{rank}. {name}",
+                    xs,
+                    ys_engineer,
+                    linestyle="--",
+                    linewidth=2.0,
+                    color=color,
+                    label=f"{name} (score={score:.3f})",
                 )
-                # Label next to point
+
+                # Label at end near x = max_x
+                end_x = max_x
+                base_y = score * end_x
+                base_y = max(0.0, min(base_y, max_y))  # clamp in range
+                offset = label_offsets[i % len(label_offsets)]
+                label_y = max(0.5, min(base_y + offset, max_y - 0.5))
+
                 ax.text(
-                    x + 0.02,
-                    y + 0.02,
-                    f"{rank}. {name}",
-                    fontsize=8,
-                    color="white",
+                    end_x + 0.3,
+                    label_y,
+                    f"{name}",
+                    color=color,
+                    fontsize=9,
+                    va="center",
                 )
 
-            ax.set_title("Job Description vs. Top Engineer Fits (PCA View)", color="white")
-            ax.set_xlabel("Fit Dimension 1", color="white")
-            ax.set_ylabel("Fit Dimension 2", color="white")
+            # Axes styling to match theme
+            ax.set_xlim(0, max_x + 2)
+            ax.set_ylim(0, max_y)
+            ax.set_xlabel("Relative Requirement Coverage", color="#E5F2FF")
+            ax.set_ylabel("Match Intensity", color="#E5F2FF")
+            ax.set_title("Match Visualization: Job Description vs Candidate Fit", color="#F2F7FF", fontsize=13)
 
-            ax.tick_params(colors="white")
-            ax.grid(True, color="white", alpha=0.15)
+            # Light grid for readability
+            ax.grid(alpha=0.25, linestyle=":")
 
-            # Legend styling
-            legend = ax.legend(fontsize=8, facecolor="black", framealpha=0.6)
-            for text in legend.get_texts():
-                text.set_color("white")
+            # Legend for line styles only (job line + general engineer entry)
+            ax.legend(loc="upper left", framealpha=0.2)
+
+            # Match dark background
+            fig.patch.set_facecolor("#020617")
+            ax.set_facecolor("#020617")
+
+            # Make tick labels readable
+            ax.tick_params(colors="#E5F2FF")
 
             st.pyplot(fig)
-        else:
-            st.info("Graph will appear after a successful search that returns PCA coordinates.")
+
+        except Exception as e:
+            st.warning(f"Could not render graph: {e}")
 
 
 # ============================================================
@@ -468,5 +480,4 @@ with tabs[3]:
             st.success("New background saved. Refresh page.")
         else:
             st.success("Settings updated.")
-
 
